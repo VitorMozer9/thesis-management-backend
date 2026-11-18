@@ -1,3 +1,5 @@
+import logging
+
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import BinaryIO
@@ -15,6 +17,15 @@ from thesis.application.exceptions import ThesisNotFoundError
 
 from thesis.application.ports.thesis_repository import ThesisRepository
 from thesis.application.ports.file_storage import FileStoragePort
+from thesis.application.ports.thesis_lock import ThesisLockPort
+
+from thesis.application.ports.upload_processing import (
+    UploadProcessingPort,
+    UploadProcessingStatus,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,6 +33,8 @@ class UploadThesisPdfUseCase:
 
     repository: ThesisRepository
     storage: FileStoragePort
+    thesis_lock: ThesisLockPort
+    processing: UploadProcessingPort
 
     max_file_size_bytes: int = 20 * 1024 * 1024
 
@@ -33,18 +46,6 @@ class UploadThesisPdfUseCase:
         content: BinaryIO,
     ) -> Thesis:
 
-        thesis = self.repository.find_by_id(thesis_id)
-
-        if thesis is None:
-            raise ThesisNotFoundError(
-                f"Thesis {thesis_id} not found."
-            )
-
-        if thesis.status != ThesisStatus.DRAFT:
-            raise ThesisNotEditableError(
-                "Only draft theses can receive PDF uploads."
-            )
-
         if not filename.lower().endswith(".pdf"):
             raise InvalidThesisError(
                 "Only PDF files are allowed."
@@ -55,49 +56,100 @@ class UploadThesisPdfUseCase:
                 "Invalid PDF file size."
             )
 
-        content.seek(0)
+        with self.thesis_lock.lock(thesis_id):
 
-        header = content.read(5)
+            thesis = self.repository.find_by_id(thesis_id)
 
-        if header != b"%PDF-":
-            raise InvalidThesisError(
-                "File does not have a valid PDF signature."
-            )
-
-        content.seek(0)
-
-        file_hash = sha256()
-        total_bytes = 0
-
-        while chunk := content.read(1024 * 1024):
-            total_bytes += len(chunk)
-
-            if total_bytes > self.max_file_size_bytes:
-                raise InvalidThesisError(
-                    "PDF exceeds the maximum allowed size."
+            if thesis is None:
+                raise ThesisNotFoundError(
+                    f"Thesis {thesis_id} not found."
                 )
 
-            file_hash.update(chunk)
+            if thesis.status != ThesisStatus.DRAFT:
+                raise ThesisNotEditableError(
+                    "Only draft theses can receive PDF uploads."
+                )
 
-        content.seek(0)
-
-        file_key = (
-            f"theses/{thesis.id}/{uuid4().hex}.pdf"
-        )
-
-        saved_key = self.storage.save(
-            key=file_key,
-            content=content,
-        )
-
-        try:
-            updated_thesis = thesis.attach_file(
-                file_key=saved_key,
-                file_sha256=file_hash.hexdigest(),
+            self.processing.set_status(
+                thesis_id,
+                UploadProcessingStatus.PROCESSING
             )
 
-            return self.repository.save(updated_thesis)
+            try:
+                content.seek(0)
 
-        except Exception:
-            self.storage.delete(saved_key)
-            raise
+                header = content.read(5)
+
+                if header != b"%PDF-":
+                    raise InvalidThesisError(
+                        "File does not have a valid PDF signature."
+                    )
+
+                content.seek(0)
+
+                file_hash = sha256()
+                total_bytes = 0
+
+                while chunk := content.read(1024 * 1024):
+
+                    total_bytes += len(chunk)
+
+                    if total_bytes > self.max_file_size_bytes:
+                        raise InvalidThesisError(
+                            "PDF exceeds the maximum allowed size."
+                        )
+
+                    file_hash.update(chunk)
+
+                content.seek(0)
+
+                file_key = (
+                    f"theses/{thesis.id}/{uuid4().hex}.pdf"
+                )
+
+                saved_key = self.storage.save(
+                    key=file_key,
+                    content=content,
+                )
+
+                try:
+                    updated_thesis = thesis.attach_file(
+                        file_key=saved_key,
+                        file_sha256=file_hash.hexdigest(),
+                    )
+
+                    saved_thesis = self.repository.save(
+                        updated_thesis
+                    )
+
+                except Exception:
+                    self.storage.delete(saved_key)
+                    raise
+
+            except Exception:
+
+                try:
+                    self.processing.set_status(
+                        thesis_id,
+                        UploadProcessingStatus.FAILED
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Could not register FAILED upload status."
+                    )
+
+                raise
+
+            try:
+                self.processing.set_status(
+                    thesis_id,
+                    UploadProcessingStatus.COMPLETED
+                )
+
+            except Exception:
+                logger.exception(
+                    "Could not register COMPLETED upload status."
+                )
+
+            return saved_thesis

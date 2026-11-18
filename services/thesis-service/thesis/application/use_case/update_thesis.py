@@ -4,6 +4,7 @@ from uuid import UUID
 from thesis.domain.entities.thesis import Thesis
 
 from thesis.application.ports.thesis_repository import ThesisRepository
+from thesis.application.ports.thesis_lock import ThesisLockPort
 
 from thesis.application.exceptions import ThesisNotFoundError
 
@@ -14,6 +15,7 @@ from thesis.domain.exceptions import InvalidThesisError
 class UpdateThesisUseCase:
 
     repository: ThesisRepository
+    thesis_lock: ThesisLockPort
 
     def execute(
         self,
@@ -33,20 +35,22 @@ class UpdateThesisUseCase:
                 "At least one field must be provided."
             )
 
-        thesis = self.repository.find_by_id(thesis_id)
+        with self.thesis_lock.lock(thesis_id):
 
-        if thesis is None:
-            raise ThesisNotFoundError(
-                f"Thesis {thesis_id} not found."
-            )
+            thesis = self.repository.find_by_id(thesis_id)
 
-        if title is not None:
-            thesis = thesis.change_title(title)
+            if thesis is None:
+                raise ThesisNotFoundError(
+                    f"Thesis {thesis_id} not found."
+                )
 
-        if abstract is not None:
-            thesis = thesis.change_abstract(abstract)
+            if title is not None:
+                thesis = thesis.change_title(title)
 
-        if keywords is not None:
-            thesis = thesis.change_keywords(keywords)
+            if abstract is not None:
+                thesis = thesis.change_abstract(abstract)
 
-        return self.repository.save(thesis)
+            if keywords is not None:
+                thesis = thesis.change_keywords(keywords)
+
+            return self.repository.save(thesis)
