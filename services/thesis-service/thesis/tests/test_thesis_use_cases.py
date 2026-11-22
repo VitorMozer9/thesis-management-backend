@@ -9,6 +9,10 @@ from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.use_case.get_thesis import GetThesisUseCase
 from thesis.application.use_case.update_thesis import UpdateThesisUseCase
 
+from contextlib import AbstractContextManager, nullcontext
+from uuid import UUID
+
+from thesis.application.ports.thesis_lock import ThesisLockPort
 
 class InMemoryThesisRepository:
 
@@ -57,7 +61,8 @@ class ThesisUseCaseTests(unittest.TestCase):
 
     def test_update_draft_title(self):
         use_case = UpdateThesisUseCase(
-            repository=self.repository
+            repository=self.repository,
+            thesis_lock=FakeThesisLock(),
         )
 
         updated = use_case.execute(
@@ -76,7 +81,8 @@ class ThesisUseCaseTests(unittest.TestCase):
 
     def test_update_only_selected_field(self):
         use_case = UpdateThesisUseCase(
-            repository=self.repository
+            repository=self.repository,
+            thesis_lock=FakeThesisLock(),
         )
 
         updated = use_case.execute(
@@ -106,7 +112,8 @@ class ThesisUseCaseTests(unittest.TestCase):
         self.repository.save(submitted)
 
         use_case = UpdateThesisUseCase(
-            repository=self.repository
+            repository=self.repository,
+            thesis_lock=FakeThesisLock(),
         )
 
         with self.assertRaises(ThesisNotEditableError):
@@ -114,3 +121,12 @@ class ThesisUseCaseTests(unittest.TestCase):
                 thesis_id=submitted.id,
                 title="Forbidden change",
             )
+
+class FakeThesisLock(ThesisLockPort):
+
+    def lock(
+        self,
+        thesis_id: UUID
+    ) -> AbstractContextManager[None]:
+
+        return nullcontext()

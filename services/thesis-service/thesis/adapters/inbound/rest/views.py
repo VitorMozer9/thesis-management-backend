@@ -1,57 +1,61 @@
+from uuid import UUID
+
+from redis.exceptions import RedisError
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from rest_framework.exceptions import ValidationError
-
-from thesis.domain.exceptions import InvalidThesisError
-
-from thesis.application.use_case.create_thesis import CreateThesisUseCase
-
-from thesis.adapters.outbound.persistence.django_thesis_repository import (
-    DjangoThesisRepository,
+from rest_framework.exceptions import (
+    ValidationError,
+    NotFound,
 )
 
-from thesis.adapters.inbound.rest.serializers import ( CreateThesisSerializer,ThesisResponseSerializer,)
-
-from uuid import UUID
-
-from rest_framework.exceptions import NotFound
-
-from thesis.application.use_case.get_thesis import GetThesisUseCase
-
-from thesis.application.use_case.update_thesis import UpdateThesisUseCase
-
-from thesis.application.exceptions import ThesisNotFoundError
+from rest_framework.parsers import MultiPartParser
 
 from thesis.domain.exceptions import (
     InvalidThesisError,
     ThesisNotEditableError,
 )
 
-from thesis.adapters.inbound.rest.exceptions import ConflictError
+from thesis.application.exceptions import ThesisNotFoundError
 
-from thesis.adapters.inbound.rest.serializers import UpdateThesisSerializer
-
-from pathlib import Path
-from uuid import UUID
-
-from django.conf import settings
-
-from rest_framework.parsers import MultiPartParser
-
-from thesis.application.use_case.upload_thesis_pdf import (
-    UploadThesisPdfUseCase,
+from thesis.application.ports.thesis_lock import (
+    ThesisAlreadyLockedError,
 )
 
-from thesis.adapters.outbound.storage.local_file_storage import (
-    LocalFileStorage,
+from thesis.application.use_case.create_thesis import (
+    CreateThesisUseCase,
+)
+
+from thesis.application.use_case.get_thesis import (
+    GetThesisUseCase,
+)
+
+from thesis.adapters.outbound.persistence.django_thesis_repository import (
+    DjangoThesisRepository,
+)
+
+from thesis.adapters.inbound.rest.exceptions import (
+    ConflictError,
+    ServiceUnavailableError,
 )
 
 from thesis.adapters.inbound.rest.serializers import (
+    CreateThesisSerializer,
+    ThesisResponseSerializer,
+    UpdateThesisSerializer,
     UploadThesisPdfSerializer,
 )
 
+from config.dependencies import (
+    build_update_thesis_use_case,
+    build_upload_thesis_pdf_use_case,
+)
+
+from config.dependencies import (
+    build_get_thesis_upload_status_use_case,
+)
 
 class ThesisView(APIView):
 
@@ -71,6 +75,7 @@ class ThesisView(APIView):
             thesis = use_case.execute(
                 **serializer.validated_data
             )
+
         except InvalidThesisError as exc:
             raise ValidationError(
                 {"detail": str(exc)}
@@ -85,6 +90,7 @@ class ThesisView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class ThesisDetailView(APIView):
 
     def get(self, request, thesis_id: UUID):
@@ -95,6 +101,7 @@ class ThesisDetailView(APIView):
 
         try:
             thesis = use_case.execute(thesis_id)
+
         except ThesisNotFoundError as exc:
             raise NotFound(str(exc)) from exc
 
@@ -114,9 +121,7 @@ class ThesisDetailView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        use_case = UpdateThesisUseCase(
-            repository=DjangoThesisRepository()
-        )
+        use_case = build_update_thesis_use_case()
 
         try:
             thesis = use_case.execute(
@@ -127,12 +132,20 @@ class ThesisDetailView(APIView):
         except ThesisNotFoundError as exc:
             raise NotFound(str(exc)) from exc
 
-        except ThesisNotEditableError as exc:
+        except (
+            ThesisNotEditableError,
+            ThesisAlreadyLockedError,
+        ) as exc:
             raise ConflictError(str(exc)) from exc
 
         except InvalidThesisError as exc:
             raise ValidationError(
                 {"detail": str(exc)}
+            ) from exc
+
+        except RedisError as exc:
+            raise ServiceUnavailableError(
+                "Redis is currently unavailable."
             ) from exc
 
         response_serializer = ThesisResponseSerializer(
@@ -143,6 +156,7 @@ class ThesisDetailView(APIView):
             response_serializer.data,
             status=status.HTTP_200_OK,
         )
+
 
 class ThesisPdfUploadView(APIView):
 
@@ -158,12 +172,7 @@ class ThesisPdfUploadView(APIView):
 
         uploaded_file = serializer.validated_data["file"]
 
-        use_case = UploadThesisPdfUseCase(
-            repository=DjangoThesisRepository(),
-            storage=LocalFileStorage(
-                Path(settings.MEDIA_ROOT)
-            ),
-        )
+        use_case = build_upload_thesis_pdf_use_case()
 
         try:
             thesis = use_case.execute(
@@ -176,12 +185,20 @@ class ThesisPdfUploadView(APIView):
         except ThesisNotFoundError as exc:
             raise NotFound(str(exc)) from exc
 
-        except ThesisNotEditableError as exc:
+        except (
+            ThesisNotEditableError,
+            ThesisAlreadyLockedError,
+        ) as exc:
             raise ConflictError(str(exc)) from exc
 
         except InvalidThesisError as exc:
             raise ValidationError(
                 {"detail": str(exc)}
+            ) from exc
+
+        except RedisError as exc:
+            raise ServiceUnavailableError(
+                "Redis is currently unavailable."
             ) from exc
 
         response_serializer = ThesisResponseSerializer(
@@ -190,5 +207,34 @@ class ThesisPdfUploadView(APIView):
 
         return Response(
             response_serializer.data,
+            status=status.HTTP_200_OK,
+        )
+    
+class ThesisUploadStatusView(APIView):
+
+    def get(self, request, thesis_id: UUID):
+
+        use_case = build_get_thesis_upload_status_use_case()
+
+        try:
+            upload_status = use_case.execute(thesis_id)
+
+        except ThesisNotFoundError as exc:
+            raise NotFound(str(exc)) from exc
+
+        except RedisError as exc:
+            raise ServiceUnavailableError(
+                "Redis is currently unavailable."
+            ) from exc
+
+        return Response(
+            {
+                "thesis_id": str(thesis_id),
+                "upload_status": (
+                    upload_status.value
+                    if upload_status is not None
+                    else None
+                ),
+            },
             status=status.HTTP_200_OK,
         )

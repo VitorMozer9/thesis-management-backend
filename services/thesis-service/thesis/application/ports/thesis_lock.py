@@ -11,8 +11,5 @@ class ThesisAlreadyLockedError(Exception):
 class ThesisLockPort(ABC):
 
     @abstractmethod
-    def lock(
-        self,
-        thesis_id: UUID
-    ) -> AbstractContextManager[None]:
+    def lock(self,thesis_id: UUID) -> AbstractContextManager[None]:
         pass
