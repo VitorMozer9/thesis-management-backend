@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from hashlib import sha256
 
+from thesis.application.pdf_limits import MAX_PDF_BYTES
 from thesis.application.ports.file_storage import FileStoragePort
 from thesis.application.ports.pdf_extraction import (
     ExtractionRepository, InvalidPdf, PdfFailure, PdfTextExtractor, SubmissionFile,
@@ -15,7 +16,7 @@ class ProcessSubmittedPdfUseCase:
     storage: FileStoragePort
     extractor: PdfTextExtractor
     unit_of_work: UnitOfWorkPort
-    max_bytes: int = 20 * 1024 * 1024
+    max_bytes: int = MAX_PDF_BYTES
 
     def execute(self, event: ThesisSubmittedEvent) -> None:
         self.repository.mark_processing(event)

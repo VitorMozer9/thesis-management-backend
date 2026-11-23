@@ -12,6 +12,65 @@ O `thesis-service` gerencia rascunhos, PDFs, submissões e decisões dos orienta
 | `config` | Configuração Django, rotas e composição de dependências. |
 | `thesis/management/commands` | Comandos independentes para publicar a Outbox e processar os PDFs. |
 
+## Execução integral em contêineres Linux
+
+Execute os comandos desta seção **na raiz do repositório**. Use Docker Desktop em modo Linux no Windows ou Docker Engine com Compose v2 no Linux. Conserve o projeto Compose existente (`infrastructure` por padrão). Alterar o nome do projeto faz o Compose procurar volumes diferentes. Para uma instalação nova, crie o arquivo de ambiente apenas se ainda não existir.
+
+PowerShell:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Linux:
+
+```sh
+test -e .env || (umask 077 && cp .env.example .env)
+```
+
+Preencha no `.env` as credenciais do PostgreSQL e a chave do Django. Em um banco já inicializado, use as credenciais correspondentes ao volume existente. O Compose fornece os endereços internos `postgres:5432`, `redis:6379` e `kafka:19092`. O listener Kafka do host permanece em `localhost:9092`. A API publica somente em `127.0.0.1:8001` por padrão, configurável com `THESIS_API_PORT`. O Gunicorn escuta em 8000 dentro do contêiner e o Compose fixa `DEBUG=False`. Inclua o hostname da requisição em `DJANGO_ALLOWED_HOSTS` e mantenha `127.0.0.1` para a verificação de saúde.
+
+Para aceitar tokens, preencha emissor e público-alvo conforme [o contrato JWT](IDENTITY.md). A configuração base aceita `THESIS_JWT_PUBLIC_KEY` em PEM. Para montar um arquivo externo somente para leitura, defina `THESIS_JWT_PUBLIC_KEY_HOST_FILE` como caminho absoluto do PEM público (no Windows, por exemplo, `C:/chaves/identity-public.pem`). Acrescente `-f infrastructure/compose.jwt-file.yaml` **depois** do arquivo Compose principal em todos os comandos relativos à pilha. O arquivo prevalece sobre o PEM do ambiente e precisa estar legível pelo UID 10001. A chave privada fica no emissor. Sem configuração de confiança, as rotas protegidas recusam acesso.
+
+### Build, inicialização e verificação
+
+Os comandos a seguir são iguais no PowerShell e no shell Linux:
+
+```sh
+docker compose --env-file .env -f infrastructure/compose.yaml config --quiet
+docker compose --env-file .env -f infrastructure/compose.yaml build thesis-api
+docker compose --env-file .env -f infrastructure/compose.yaml up -d --wait
+docker compose --env-file .env -f infrastructure/compose.yaml ps -a
+docker compose --env-file .env -f infrastructure/compose.yaml exec thesis-api python manage.py showmigrations thesis
+docker compose --env-file .env -f infrastructure/compose.yaml logs --tail 50 thesis-api thesis-outbox-worker thesis-pdf-worker
+```
+
+`thesis-migrate` executa `python manage.py migrate --noinput` após o PostgreSQL ficar saudável. A API e os dois workers aguardam seu sucesso. Para repetir uma migração manualmente em janela de manutenção, use `docker compose --env-file .env -f infrastructure/compose.yaml run --rm thesis-migrate`. `thesis-topic` usa o listener interno para criar o tópico configurado se ele ainda não existir. A saída com código zero dos dois serviços de inicialização é esperada.
+
+API e workers usam a mesma imagem e o usuário 10001. A API é considerada saudável quando a rota protegida responde 401 à sondagem sem token. O teste ponta a ponta abaixo verifica também a cadeia de dependências. Os workers têm até três tentativas automáticas de reinício por falha. Após corrigir a causa indicada nos logs, use `docker compose --env-file .env -f infrastructure/compose.yaml restart thesis-pdf-worker` ou o nome do worker da Outbox.
+
+### Testes e persistência
+
+```sh
+docker compose --env-file .env -f infrastructure/compose.yaml exec thesis-api python manage.py check
+docker compose --env-file .env -f infrastructure/compose.yaml run --rm --no-deps -e MEDIA_ROOT=/tmp/test-media -e REDIS_URL=redis://redis:6379/15 thesis-api python manage.py test --keepdb
+docker compose --env-file .env -f infrastructure/compose.yaml run --rm --no-deps thesis-api python -m thesis.tests.compose_smoke
+```
+
+O último comando usa uma instância temporária de Gunicorn, acessível apenas dentro do contêiner de teste. Ela verifica JWTs RS256 com uma chave pública temporária. O teste cria um rascunho sintético no banco configurado, associa o orientador, envia um PDF textual, submete e verifica texto e SHA-256 após os workers reais processarem o evento. O UUID impresso permite conferir a linha após reiniciar ou recriar API e workers. O PDF, a linha, a auditoria e os eventos sintéticos permanecem gravados.
+
+O volume `thesis_media` é montado em `/var/lib/thesis/media`, com escrita na API e somente leitura no worker de PDF. A imagem prepara o diretório com UID/GID 10001 para a inicialização de um volume novo. Os volumes existentes continuam nos caminhos anteriores: PostgreSQL 18 usa `postgres18_data:/var/lib/postgresql`, Redis usa `redis_data:/data` e Kafka usa `kafka_data:/tmp/kraft-combined-logs`. A declaração legada `postgres_data` também é mantida. Preserve o ID KRaft e o acesso de escrita do usuário do Kafka ao volume inicializado.
+
+**Acervo anterior do Windows.** O volume novo começa vazio. Antes de liberar o consumidor para processar submissões que apontem ao acervo local, mantenha a API e o worker de PDF parados e faça backup do diretório `services/thesis-service/media`, do banco e do volume de destino. Monte a origem somente para leitura em um contêiner auxiliar. Compare as chaves relativas e o SHA-256 de cada arquivo com o banco e com arquivos já presentes no volume. Copie apenas arquivos ausentes, preservando os caminhos e recusando colisões de conteúdo. Faça a cópia como UID 10001, confira contagens e hashes na origem e no destino e teste a leitura pelo worker antes de retomar. Conserve a origem para recuperação. A inicialização Compose não executa essa cópia.
+
+Para encerrar a pilha e conservar os volumes:
+
+```sh
+docker compose --env-file .env -f infrastructure/compose.yaml stop
+```
+
+A configuração atende desenvolvimento e validação em host local. Uma exposição pública requer terminação TLS, gestão de segredos e de backups, controle de rede, revisão dos listeners sem criptografia e política de retenção para dados acadêmicos.
+
 ## Ambiente local
 
 Use Python 3.14. A infraestrutura de desenvolvimento em `../../infrastructure/compose.yaml` publica PostgreSQL 18 em `127.0.0.1:5434`, Redis 7.4 em `127.0.0.1:6379` e Kafka 4.4 em `127.0.0.1:9092`. API, publicador da Outbox e consumidor de PDFs são processos separados.
@@ -34,7 +93,7 @@ A partir de `services/thesis-service`, crie e ative um ambiente virtual. Exemplo
 py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-docker compose --env-file ../../.env -f ../../infrastructure/compose.yaml up -d
+docker compose --env-file ../../.env -f ../../infrastructure/compose.yaml up -d postgres redis kafka
 python manage.py migrate
 python manage.py runserver 127.0.0.1:8000
 ```

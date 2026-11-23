@@ -5,6 +5,7 @@ from hashlib import sha256
 from typing import BinaryIO
 from uuid import UUID, uuid4
 
+from thesis.application.pdf_limits import MAX_PDF_BYTES
 from thesis.application.ports.unit_of_work import UnitOfWorkPort
 from thesis.application.ports.audit import AuditAction, AuditPort
 from thesis.application.identity import AcademicIdentity, Role
@@ -42,7 +43,7 @@ class UploadThesisPdfUseCase:
     unit_of_work: UnitOfWorkPort
     actor: AcademicIdentity
     audit: AuditPort
-    max_file_size_bytes: int = 20 * 1024 * 1024
+    max_file_size_bytes: int = MAX_PDF_BYTES
 
     def execute(
         self,

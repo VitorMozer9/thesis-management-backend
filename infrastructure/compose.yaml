@@ -1,3 +1,24 @@
+x-thesis: &thesis
+  image: thesis-service:local
+  pull_policy: never
+  init: true
+  restart: "on-failure:3"
+  environment: &thesis-env
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Configure DJANGO_SECRET_KEY}
+    DJANGO_DEBUG: "False"
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,thesis-api}
+    POSTGRES_DB: ${POSTGRES_DB}
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+    REDIS_TEST_URL: redis://redis:6379/15
+    KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    KAFKA_THESIS_EVENTS_TOPIC: ${KAFKA_THESIS_EVENTS_TOPIC:-thesis.events.v1}
+    KAFKA_PDF_GROUP_ID: ${KAFKA_PDF_GROUP_ID:-thesis-pdf-extraction-v1}
+    MEDIA_ROOT: /var/lib/thesis/media
+
 services:
 
   postgres:
@@ -75,8 +96,68 @@ services:
       - kafka_data:/tmp/kraft-combined-logs
 
 
+
+  thesis-migrate:
+    <<: *thesis
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  thesis-topic:
+    image: apache/kafka:4.4.0
+    restart: "on-failure:3"
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command: ["--bootstrap-server", "kafka:19092", "--create", "--if-not-exists", "--topic", "${KAFKA_THESIS_EVENTS_TOPIC:-thesis.events.v1}", "--partitions", "1", "--replication-factor", "1"]
+    depends_on:
+      kafka:
+        condition: service_started
+
+  thesis-api:
+    <<: *thesis
+    build: ../services/thesis-service
+    environment:
+      <<: *thesis-env
+      THESIS_JWT_ISSUER: ${THESIS_JWT_ISSUER:-}
+      THESIS_JWT_AUDIENCE: ${THESIS_JWT_AUDIENCE:-}
+      THESIS_JWT_PUBLIC_KEY: ${THESIS_JWT_PUBLIC_KEY:-}
+    ports:
+      - "127.0.0.1:${THESIS_API_PORT:-8001}:8000"
+    volumes:
+      - thesis_media:/var/lib/thesis/media
+    depends_on:
+      thesis-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8000, timeout=3); c.request('GET', '/api/theses/'); raise SystemExit(c.getresponse().status != 401)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+
+  thesis-outbox-worker:
+    <<: *thesis
+    command: ["python", "manage.py", "run_outbox_worker"]
+    depends_on: &worker-deps
+      thesis-migrate:
+        condition: service_completed_successfully
+      thesis-topic:
+        condition: service_completed_successfully
+
+  thesis-pdf-worker:
+    <<: *thesis
+    command: ["python", "manage.py", "run_pdf_worker"]
+    stop_grace_period: 60s
+    volumes:
+      - thesis_media:/var/lib/thesis/media:ro
+    depends_on: *worker-deps
+
 volumes:
   postgres_data:
   postgres18_data:
   redis_data:
   kafka_data:
+  thesis_media:

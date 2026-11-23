@@ -1,0 +1,13 @@
+**
+!requirements.txt
+!manage.py
+!config/
+!config/**/*.py
+!thesis/
+!thesis/**/
+!thesis/**/*.py
+**/__pycache__/
+**/.venv/
+**/.git/
+**/.env*
+**/media/

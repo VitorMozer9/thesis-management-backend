@@ -30,7 +30,10 @@ SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = [
+    host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    if host.strip()
+]
 
 
 # Application definition
@@ -59,7 +62,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
 
 TEMPLATES = [
     {
@@ -148,6 +151,9 @@ MAILERS = {
 THESIS_JWT_ISSUER = os.getenv("THESIS_JWT_ISSUER")
 THESIS_JWT_AUDIENCE = os.getenv("THESIS_JWT_AUDIENCE")
 THESIS_JWT_PUBLIC_KEY = os.getenv("THESIS_JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+if public_key_file := os.getenv("THESIS_JWT_PUBLIC_KEY_FILE"):
+    THESIS_JWT_PUBLIC_KEY = Path(public_key_file).read_text(encoding="ascii")
+
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

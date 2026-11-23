@@ -1,0 +1,10 @@
+services:
+  thesis-api:
+    environment:
+      THESIS_JWT_PUBLIC_KEY_FILE: /run/secrets/thesis_jwt_public_key
+    secrets:
+      - thesis_jwt_public_key
+
+secrets:
+  thesis_jwt_public_key:
+    file: ${THESIS_JWT_PUBLIC_KEY_HOST_FILE:?Informe o caminho absoluto da chave publica PEM}
