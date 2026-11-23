@@ -57,6 +57,10 @@ from config.dependencies import (
     build_get_thesis_upload_status_use_case,
 )
 
+from config.dependencies import (
+    build_create_thesis_use_case,
+)
+
 class ThesisView(APIView):
 
     def post(self, request):
@@ -67,9 +71,7 @@ class ThesisView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        use_case = CreateThesisUseCase(
-            repository=DjangoThesisRepository()
-        )
+        use_case = build_create_thesis_use_case()
 
         try:
             thesis = use_case.execute(

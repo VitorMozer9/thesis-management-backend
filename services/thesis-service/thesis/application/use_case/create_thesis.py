@@ -3,13 +3,29 @@ from uuid import UUID
 
 from thesis.domain.entities.thesis import Thesis
 
-from thesis.application.ports.thesis_repository import ThesisRepository
+from thesis.domain.events.thesis_events import (
+    ThesisCreatedEvent,
+)
+
+from thesis.application.ports.thesis_repository import (
+    ThesisRepository,
+)
+
+from thesis.application.ports.outbox_repository import (
+    OutboxRepositoryPort,
+)
+
+from thesis.application.ports.unit_of_work import (
+    UnitOfWorkPort,
+)
 
 
 @dataclass
 class CreateThesisUseCase:
 
     repository: ThesisRepository
+    outbox_repository: OutboxRepositoryPort
+    unit_of_work: UnitOfWorkPort
 
     def execute(
         self,
@@ -26,4 +42,14 @@ class CreateThesisUseCase:
             course_id=course_id,
         )
 
-        return self.repository.save(thesis)
+        with self.unit_of_work.transaction():
+
+            saved_thesis = self.repository.save(thesis)
+
+            event = ThesisCreatedEvent(
+                thesis_id=saved_thesis.id
+            )
+
+            self.outbox_repository.add(event)
+
+        return saved_thesis

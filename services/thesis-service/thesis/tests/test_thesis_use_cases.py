@@ -14,6 +14,26 @@ from uuid import UUID
 
 from thesis.application.ports.thesis_lock import ThesisLockPort
 
+from thesis.application.ports.outbox_repository import (
+    OutboxRepositoryPort,
+)
+
+from thesis.domain.events.thesis_events import (
+    ThesisCreatedEvent,
+)
+
+from contextlib import AbstractContextManager, nullcontext
+
+from thesis.application.ports.unit_of_work import (
+    UnitOfWorkPort,
+)
+
+from thesis.application.use_case.create_thesis import (
+    CreateThesisUseCase,
+)
+
+from thesis.domain.enums.thesis_status import ThesisStatus
+
 class InMemoryThesisRepository:
 
     def __init__(self):
@@ -122,11 +142,81 @@ class ThesisUseCaseTests(unittest.TestCase):
                 title="Forbidden change",
             )
 
+def test_create_thesis_with_outbox_event(self):
+
+    outbox_repository = FakeOutboxRepository()
+
+    use_case = CreateThesisUseCase(
+        repository=self.repository,
+        outbox_repository=outbox_repository,
+        unit_of_work=FakeUnitOfWork(),
+    )
+
+    student_id = uuid4()
+    course_id = uuid4()
+
+    thesis = use_case.execute(
+        title="Hexagonal Architecture",
+        abstract="A study about software architecture.",
+        student_id=student_id,
+        course_id=course_id,
+    )
+
+    saved_thesis = self.repository.find_by_id(thesis.id)
+
+    self.assertIsNotNone(saved_thesis)
+    self.assertEqual(
+        saved_thesis.title,
+        "Hexagonal Architecture",
+    )
+
+    self.assertEqual(
+        saved_thesis.status,
+        ThesisStatus.DRAFT,
+    )
+
+    self.assertEqual(
+        len(outbox_repository.events),
+        1,
+    )
+
+    event = outbox_repository.events[0]
+
+    self.assertEqual(
+        event.thesis_id,
+        thesis.id,
+    )
+
+    self.assertEqual(
+        event.event_type,
+        "thesis.created",
+    )
+
 class FakeThesisLock(ThesisLockPort):
 
     def lock(
         self,
         thesis_id: UUID
+    ) -> AbstractContextManager[None]:
+
+        return nullcontext()
+
+class FakeOutboxRepository(OutboxRepositoryPort):
+
+    def __init__(self):
+        self.events = []
+
+    def add(
+        self,
+        event: ThesisCreatedEvent,
+    ) -> None:
+
+        self.events.append(event)
+
+class FakeUnitOfWork(UnitOfWorkPort):
+
+    def transaction(
+        self,
     ) -> AbstractContextManager[None]:
 
         return nullcontext()

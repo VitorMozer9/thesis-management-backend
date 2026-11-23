@@ -2,6 +2,7 @@ from django.db import models
 
 from thesis.domain.enums.thesis_status import ThesisStatus
 
+from thesis.adapters.outbound.persistence.outbox_models import (OutboxEventModel,)
 
 class ThesisModel(models.Model):
 

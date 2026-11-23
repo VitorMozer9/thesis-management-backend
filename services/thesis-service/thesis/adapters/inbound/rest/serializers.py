@@ -36,6 +36,8 @@ class ThesisResponseSerializer(serializers.Serializer):
     file_key = serializers.CharField(allow_null=True)
 
     file_sha256 = serializers.CharField(allow_null=True)
+
+    advisor_id = serializers.UUIDField(required=False)
     
 
 class UpdateThesisSerializer(serializers.Serializer):
