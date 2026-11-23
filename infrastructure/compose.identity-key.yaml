@@ -1,0 +1,10 @@
+services:
+  identity-api:
+    environment:
+      IDENTITY_JWT_PRIVATE_KEY_FILE: /run/secrets/identity_jwt_private_key
+    secrets:
+      - identity_jwt_private_key
+
+secrets:
+  identity_jwt_private_key:
+    file: ${IDENTITY_JWT_PRIVATE_KEY_HOST_FILE:?Informe o caminho absoluto da chave privada PEM}

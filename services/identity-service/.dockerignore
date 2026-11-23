@@ -1,0 +1,14 @@
+**
+!requirements.txt
+!manage.py
+!config/
+!config/**/*.py
+!identity/
+!identity/**/
+!identity/**/*.py
+**/__pycache__/
+**/.venv/
+**/.git/
+**/.env*
+**/*.pem
+**/*.key

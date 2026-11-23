@@ -1,0 +1,73 @@
+x-identity: &identity
+  image: identity-service:local
+  pull_policy: never
+  init: true
+  restart: "on-failure:3"
+  environment: &identity-env
+    IDENTITY_SECRET_KEY: ${IDENTITY_SECRET_KEY:?Configure IDENTITY_SECRET_KEY}
+    IDENTITY_DEBUG: "False"
+    IDENTITY_ALLOWED_HOSTS: ${IDENTITY_ALLOWED_HOSTS:-localhost,127.0.0.1,identity-api}
+    IDENTITY_DB_NAME: ${IDENTITY_DB_NAME:-identity_db}
+    IDENTITY_DB_USER: ${IDENTITY_DB_USER:-identity_user}
+    IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?Configure IDENTITY_DB_PASSWORD}
+    IDENTITY_DB_HOST: postgres
+    IDENTITY_DB_PORT: "5432"
+    IDENTITY_REDIS_URL: redis://redis:6379/1
+    IDENTITY_JWT_ISSUER: ${IDENTITY_JWT_ISSUER:-}
+    IDENTITY_JWT_AUDIENCE: ${IDENTITY_JWT_AUDIENCE:-}
+    IDENTITY_ACCESS_TOKEN_TTL_SECONDS: ${IDENTITY_ACCESS_TOKEN_TTL_SECONDS:-300}
+    IDENTITY_MAX_ASSIGNABLE_ADVISORS: ${IDENTITY_MAX_ASSIGNABLE_ADVISORS:-100}
+    IDENTITY_LOGIN_FAILED_RATE: ${IDENTITY_LOGIN_FAILED_RATE:-10/m/ip,5/5m/key}
+
+services:
+
+  identity-db-init:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      IDENTITY_DB_NAME: ${IDENTITY_DB_NAME:-identity_db}
+      IDENTITY_DB_USER: ${IDENTITY_DB_USER:-identity_user}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?Configure IDENTITY_DB_PASSWORD}
+    volumes:
+      - ./postgres/identity-db.sql:/identity-db.sql:ro
+    command:
+      - sh
+      - -c
+      - >-
+        psql -v ON_ERROR_STOP=1
+        -v identity_db="$$IDENTITY_DB_NAME"
+        -v identity_user="$$IDENTITY_DB_USER"
+        -v identity_password="$$IDENTITY_DB_PASSWORD"
+        -f /identity-db.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  identity-migrate:
+    <<: *identity
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      identity-db-init:
+        condition: service_completed_successfully
+
+  identity-api:
+    <<: *identity
+    build: ../services/identity-service
+    ports:
+      - "127.0.0.1:${IDENTITY_API_PORT:-8002}:8000"
+    depends_on:
+      identity-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8000, timeout=3); c.request('GET', '/api/auth/me/'); raise SystemExit(c.getresponse().status != 401)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
