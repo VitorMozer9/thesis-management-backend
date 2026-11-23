@@ -93,7 +93,13 @@ dc ps -a
 
 ## Usuários de desenvolvimento
 
-O script abaixo usa o comando `create_academic_user` dentro do `identity-api`. Ele cria, somente se ainda não existirem, cinco contas sintéticas no mesmo curso: `dev-student`, `dev-advisor`, `dev-coordinator`, `dev-other-student` e `dev-other-advisor` (`@example.invalid`). As duas últimas servem aos testes de acesso a recursos alheios.
+O script abaixo usa o comando `create_academic_user` dentro do `identity-api`. Ele cria, somente se ainda não existirem, seis contas sintéticas no mesmo curso, todas `@example.invalid`:
+
+- `dev-student`, `dev-advisor` e `dev-coordinator`;
+- `dev-other-student` e `dev-other-advisor`, usadas nos testes de acesso a recursos alheios;
+- `dev-admin`, para a administração de contas em `/api/users/`.
+
+Contas acrescentadas ao script depois são completadas sem alterar as existentes.
 
 ```sh
 python infrastructure/e2e/provision_dev_users.py

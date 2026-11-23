@@ -41,7 +41,7 @@ def public_pem(key: RSAPrivateKey) -> str:
     ).decode("ascii")
 
 
-class IdentityTestCase(TestCase):
+class IdentitySettingsMixin:
 
     def setUp(self):
         self.key = generate_key()
@@ -93,3 +93,7 @@ class IdentityTestCase(TestCase):
             issuer=TEST_ISSUER,
             audience=TEST_AUDIENCE,
         )
+
+
+class IdentityTestCase(IdentitySettingsMixin, TestCase):
+    pass

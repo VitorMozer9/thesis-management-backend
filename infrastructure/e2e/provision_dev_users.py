@@ -12,24 +12,35 @@ ACCOUNTS = {
     "coordinator": ("coordinator", "Coordenação Sintética"),
     "other_student": ("student", "Outro Estudante Sintético"),
     "other_advisor": ("advisor", "Outro Orientador Sintético"),
+    "admin": ("admin", "Administração Sintética"),
 }
+
+
+def new_account(key: str) -> dict:
+    return {
+        "email": f"dev-{key.replace('_', '-')}@example.invalid",
+        "password": secrets.token_urlsafe(24) + "-Aa1",
+    }
 
 
 def load_or_create_credentials() -> dict:
     path = users_file()
 
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        credentials = json.loads(path.read_text(encoding="utf-8"))
+        missing = [key for key in ACCOUNTS if key not in credentials["accounts"]]
+
+        if not missing:
+            return credentials
+
+        credentials["accounts"].update({key: new_account(key) for key in missing})
+        path.write_text(json.dumps(credentials, indent=2), encoding="utf-8")
+
+        return credentials
 
     credentials = {
         "course_id": str(uuid.uuid4()),
-        "accounts": {
-            key: {
-                "email": f"dev-{key.replace('_', '-')}@example.invalid",
-                "password": secrets.token_urlsafe(24) + "-Aa1",
-            }
-            for key in ACCOUNTS
-        },
+        "accounts": {key: new_account(key) for key in ACCOUNTS},
     }
 
     path.parent.mkdir(parents=True, exist_ok=True)

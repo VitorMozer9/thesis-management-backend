@@ -12,3 +12,15 @@ class TokenServiceUnavailableError(Exception):
 
 class InvalidAccessTokenError(Exception):
     pass
+
+
+class AdministrationDeniedError(Exception):
+    pass
+
+
+class AccountNotFoundError(Exception):
+    pass
+
+
+class AdministrationConflictError(Exception):
+    pass

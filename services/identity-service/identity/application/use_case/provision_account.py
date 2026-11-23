@@ -1,7 +1,14 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from identity.application.ports import AccountRepository
+from identity.application.administration import snapshot
+from identity.application.ports import (
+    AccountAuditAction,
+    AccountAuditEntry,
+    AccountAuditPort,
+    AccountRepository,
+    UnitOfWork,
+)
 from identity.domain.account import Account, Role
 
 
@@ -9,6 +16,8 @@ from identity.domain.account import Account, Role
 class ProvisionAccountUseCase:
 
     accounts: AccountRepository
+    unit_of_work: UnitOfWork
+    audit: AccountAuditPort
 
     def execute(
         self,
@@ -20,6 +29,7 @@ class ProvisionAccountUseCase:
         password: str,
         academic_id: UUID | None = None,
         is_active: bool = True,
+        provisioned_by: UUID | None = None,
     ) -> Account:
 
         account = Account.provision(
@@ -31,4 +41,9 @@ class ProvisionAccountUseCase:
             is_active=is_active,
         )
 
-        return self.accounts.create(account, password)
+        with self.unit_of_work.transaction():
+            created = self.accounts.create(account, password)
+            entry = AccountAuditEntry(provisioned_by, created.id, AccountAuditAction.CREATED, snapshot(created))
+            self.audit.record(entry)
+
+        return created

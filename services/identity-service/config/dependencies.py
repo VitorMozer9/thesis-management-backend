@@ -3,13 +3,21 @@ from django.conf import settings
 from django.http import HttpRequest
 
 from identity.adapters.outbound.allauth.credentials import AllauthCredentialVerifier
+from identity.adapters.outbound.persistence.django_account_audit import DjangoAccountAudit
 from identity.adapters.outbound.persistence.django_account_repository import DjangoAccountRepository
+from identity.adapters.outbound.persistence.django_unit_of_work import DjangoUnitOfWork
 from identity.adapters.outbound.security.jwt_tokens import RsaJwtSigner, RsaJwtVerifier
 from identity.adapters.outbound.security.rsa_keys import load_private_key
 from identity.application.exceptions import TokenServiceUnavailableError
+from identity.application.use_case.authorize_administrator import AuthorizeAdministratorUseCase
+from identity.application.use_case.create_account import CreateAccountUseCase
+from identity.application.use_case.get_account import GetAccountUseCase
 from identity.application.use_case.get_profile import GetProfileUseCase
 from identity.application.use_case.issue_access_token import IssueAccessTokenUseCase
+from identity.application.use_case.list_accounts import ListAccountsUseCase
 from identity.application.use_case.provision_account import ProvisionAccountUseCase
+from identity.application.use_case.set_account_active import SetAccountActiveUseCase
+from identity.application.use_case.update_account import UpdateAccountUseCase
 
 
 def get_signing_key() -> RSAPrivateKey:
@@ -56,4 +64,48 @@ def build_get_profile_use_case() -> GetProfileUseCase:
 
 
 def build_provision_account_use_case() -> ProvisionAccountUseCase:
-    return ProvisionAccountUseCase(accounts=DjangoAccountRepository())
+
+    return ProvisionAccountUseCase(
+        accounts=DjangoAccountRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+        audit=DjangoAccountAudit(),
+    )
+
+
+def build_authorize_administrator_use_case() -> AuthorizeAdministratorUseCase:
+    return AuthorizeAdministratorUseCase(accounts=DjangoAccountRepository())
+
+
+def build_create_account_use_case() -> CreateAccountUseCase:
+
+    return CreateAccountUseCase(
+        accounts=DjangoAccountRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+        provision=build_provision_account_use_case(),
+    )
+
+
+def build_get_account_use_case() -> GetAccountUseCase:
+    return GetAccountUseCase(accounts=DjangoAccountRepository())
+
+
+def build_list_accounts_use_case() -> ListAccountsUseCase:
+    return ListAccountsUseCase(accounts=DjangoAccountRepository())
+
+
+def build_update_account_use_case() -> UpdateAccountUseCase:
+
+    return UpdateAccountUseCase(
+        accounts=DjangoAccountRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+        audit=DjangoAccountAudit(),
+    )
+
+
+def build_set_account_active_use_case() -> SetAccountActiveUseCase:
+
+    return SetAccountActiveUseCase(
+        accounts=DjangoAccountRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+        audit=DjangoAccountAudit(),
+    )

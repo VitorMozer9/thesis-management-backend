@@ -2,16 +2,16 @@
 
 O `identity-service` autentica contas acadêmicas por e-mail e senha e emite tokens de acesso JWT RS256 aceitos pelo `thesis-service`. O serviço é dono das contas, dos papéis, dos vínculos acadêmicos e da chave privada de assinatura. Os demais serviços recebem somente a chave pública e não acessam as tabelas deste serviço.
 
-Esta é a primeira etapa: login, emissão do token e consulta do próprio perfil. Contas são provisionadas por um comando administrativo. Não há cadastro público, recuperação de senha, refresh token nem painel administrativo.
+O serviço oferece login, emissão do token, consulta do próprio perfil e administração de contas acadêmicas por administradores ativos. Não há cadastro público, recuperação de senha, convite, refresh token nem painel HTML.
 
 ## Estrutura
 
 | Caminho | Responsabilidade |
 | --- | --- |
-| `identity/domain` | Conta imutável, papéis acadêmicos e regras de provisionamento e de elegibilidade ao token. |
-| `identity/application` | Portas e casos de uso: emitir token, consultar perfil e provisionar conta. |
-| `identity/adapters/inbound/rest` | API REST, autenticação Bearer do próprio serviço e serializers. |
-| `identity/adapters/outbound/persistence` | Modelo de usuário customizado e repositório Django. |
+| `identity/domain` | Conta imutável, papéis acadêmicos e regras de provisionamento, alteração e elegibilidade ao token. |
+| `identity/application` | Portas, regras de autorização administrativa e casos de uso: emitir token, consultar perfil, provisionar, criar, consultar, listar, atualizar, ativar e desativar contas. |
+| `identity/adapters/inbound/rest` | API REST, autenticação Bearer do próprio serviço, permissão administrativa e serializers. |
+| `identity/adapters/outbound/persistence` | Modelo de usuário customizado, repositório com bloqueios, unidade de trabalho e auditoria administrativa. |
 | `identity/adapters/outbound/allauth` | Verificação de credenciais com django-allauth e adapter com cadastro fechado. |
 | `identity/adapters/outbound/security` | Carregamento da chave RSA, assinatura e verificação JWT. |
 | `identity/management/commands` | `create_academic_user` e `export_jwt_public_key`. |
@@ -49,6 +49,13 @@ O allauth devolve contas inativas com senha correta para seus próprios fluxos H
 | --- | --- |
 | `POST /api/auth/login/` | JSON com `email` e `password`. Retorna `access_token`, `token_type=Bearer` e `expires_in`, com `Cache-Control: no-store`. |
 | `GET /api/auth/me/` | Exige `Authorization: Bearer <token>`. Retorna `id`, `name`, `email`, `role`, `academic_id`, `course_id` e `is_active` lidos do banco. |
+| `GET /api/users/` | Administração. Lista contas com filtros e paginação. |
+| `POST /api/users/` | Administração. Cria conta não administrativa. Responde 201 com `Location`. |
+| `GET /api/users/{id}/` | Administração. Consulta uma conta pelo UUID. |
+| `PATCH /api/users/{id}/` | Administração. Altera `name`, `email`, `role` ou `course_id`. |
+| `POST /api/users/{id}/deactivate/` e `POST /api/users/{id}/activate/` | Administração. Corpo vazio. Operações idempotentes. |
+
+As respostas de conta usam sempre os sete campos de `/api/auth/me/`. Senha, hash, `last_login` e outros atributos internos nunca são devolvidos. Todas as respostas que contêm tokens ou dados de conta usam `Cache-Control: no-store`.
 
 | Situação | Resposta |
 | --- | --- |
@@ -58,6 +65,109 @@ O allauth devolve contas inativas com senha correta para seus próprios fluxos H
 | Excesso de tentativas falhas | 429 |
 | Chave, emissor ou público-alvo ausentes ou chave inválida | 503 |
 | Token ausente, inválido, expirado ou de conta desativada em `/me/` | 401 |
+
+## Administração de contas
+
+### Autorização
+
+Somente contas com `role=admin` e `is_active=true` **no banco** administram contas. A cada requisição, a permissão `IsActiveAdministrator` carrega o ator pelo `sub` do token verificado e confere papel e estado atuais. O `role` do JWT nunca é usado para autorizar. As operações de escrita repetem essa verificação dentro da transação, com a linha do ator bloqueada.
+
+| Ator | Resultado |
+| --- | --- |
+| Sem token ou token inválido | 401 |
+| Administrador desativado, mesmo com JWT ainda dentro de `exp` | 401 |
+| `student`, `advisor` ou `coordinator` | 403. A coordenação não herda privilégios de administração de contas. |
+| Administrador ativo | Autorizado, com as restrições abaixo |
+
+| Restrição | Resposta |
+| --- | --- |
+| Criar conta `admin` pela API | 403. Administradores só são provisionados por `create_academic_user`. |
+| Promover alguém a `admin` ou alterar o papel de um administrador, inclusive o próprio | 403 |
+| Desativar a própria conta | 403 |
+| Desativar o último administrador ativo | 409 |
+| Alterar `id`, `academic_id`, `is_active` ou senha por `PATCH`, ou enviar campos não declarados | 400 |
+| Conta inexistente | 404 |
+| Excluir conta | Sem rota. Contas são desativadas, nunca removidas. |
+
+Um administrador precisa ter `course_id` para obter token, porque essa claim é obrigatória no contrato JWT. Contas `admin` sem curso continuam válidas para a CLI, mas não acessam a API.
+
+### Concorrência
+
+Criação, alteração, ativação e desativação executam em uma transação PostgreSQL. No início, uma única consulta `SELECT ... FOR UPDATE ORDER BY id` bloqueia o ator, a conta afetada e todas as contas administrativas ativas. A ordem fixa evita deadlocks. A segunda transação concorrente aguarda e reavalia o estado já confirmado. Assim, dois administradores que tentam desativar um ao outro ao mesmo tempo não deixam o sistema sem administrador: a segunda operação encontra o próprio ator desativado e falha com 401. Alterações simultâneas na mesma conta também são serializadas, e cada registro de auditoria parte do valor confirmado anteriormente.
+
+### Criação de contas e senha inicial
+
+`POST /api/users/` usa o mesmo caso de uso do comando `create_academic_user` (`ProvisionAccountUseCase`). Por isso as mesmas validações valem nos dois caminhos:
+
+- e-mail válido, normalizado e único sem diferenciar maiúsculas;
+- nome entre 1 e 150 caracteres;
+- papel válido;
+- curso obrigatório para papéis diferentes de `admin`;
+- `academic_id` opcional, válido e único;
+- senha conforme os validadores do Django (mínimo de 12 caracteres, sem semelhança com nome ou e-mail, nem comum, nem só numérica).
+
+| Campo | Regra |
+| --- | --- |
+| `name`, `email`, `role`, `password` | Obrigatórios. `role` aceita `student`, `advisor` ou `coordinator`. |
+| `course_id` | Obrigatório para esses papéis. |
+| `academic_id` | Opcional. Informe somente para preservar um identificador acadêmico já usado por outros sistemas. Caso contrário, o serviço gera um UUID. |
+
+**Política de senha inicial.** Como ainda não existem convite, recuperação nem troca de senha, o administrador define uma senha inicial forte e a entrega ao titular por canal separado e seguro. A senha é `write_only`, recebe hash PBKDF2 antes de ser gravada e não aparece em respostas, mensagens de erro, auditoria ou logs da aplicação. O serviço não força a troca no primeiro acesso, porque essa função ainda não existe. Fora do ambiente local, a API **exige HTTPS**, já que a senha trafega no corpo da requisição.
+
+### Alteração de vínculos acadêmicos
+
+`PATCH` aceita somente `name`, `email`, `role` (entre `student`, `advisor` e `coordinator`) e `course_id`. As regras do domínio e as constraints do banco continuam valendo, por exemplo curso obrigatório fora de `admin`. A troca de e-mail também atualiza o `EmailAddress` primário do allauth, e o login passa a usar o novo endereço.
+
+- `id` e `academic_id` são imutáveis. O `academic_id` é a referência usada pelos outros serviços, por exemplo `student_id` e `advisor_id` no thesis-service, e por isso é preservado em mudanças de papel e curso.
+- Uma mudança de papel ou curso vale nos **novos** tokens. Um orientador rebaixado ou transferido sai de `assignable_advisor_ids` dos coordenadores no próximo login deles.
+- O identity-service não consulta os dados dos outros serviços. Vínculos já gravados lá, como um `advisor_id` em uma monografia ou monografias de um estudante transferido de curso, permanecem como estão. A partir do novo token, o escopo de acesso segue o novo papel e curso. Ajustes nesses registros exigem processo próprio em cada serviço.
+
+### Ativação e desativação
+
+`deactivate` marca `is_active=false`. A conta, o histórico e as referências externas são preservados, e `activate` reverte a operação. Repetir a mesma operação devolve 200 sem novo registro de auditoria. Uma conta desativada:
+
+- não obtém novos tokens (401 no login);
+- perde o acesso a `/api/auth/me/` e, se for administradora, à administração imediatamente;
+- deixa de constar em `assignable_advisor_ids` nos tokens emitidos depois.
+
+### Auditoria administrativa
+
+A tabela `identity_account_audit` recebe uma linha por mudança efetiva, na **mesma transação** da alteração. Uma falha ao gravar a auditoria desfaz a operação.
+
+| Campo | Conteúdo |
+| --- | --- |
+| `actor_account_id` | Conta administradora responsável. Fica nulo quando a conta foi criada pelo comando confiável `create_academic_user`. |
+| `target_account_id` | Conta afetada. É um UUID sem chave estrangeira, para preservar o histórico. |
+| `action` | `account.created`, `account.updated`, `account.deactivated` ou `account.activated`. |
+| `changes` | Na criação, os dados públicos da conta. Nas demais ações, somente os campos alterados, no formato `{"campo": {"from": ..., "to": ...}}`. Nunca contém senha, hash, token ou chave. |
+| `occurred_at` | Instante em UTC. |
+
+O modelo recusa atualização e exclusão de registros, e nenhuma rota HTTP lê ou altera a auditoria. A consulta é feita pelo banco, com acesso administrativo.
+
+### Efeito sobre JWTs já emitidos
+
+- A desativação e as mudanças de papel ou curso valem imediatamente **neste serviço** e em todos os tokens emitidos depois.
+- Tokens já emitidos continuam válidos nos outros serviços, como o thesis-service, até `exp`, com as claims antigas. A desativação bloqueia novos logins, mas **não é uma revogação distribuída imediata**.
+- A janela de exposição é `IDENTITY_ACCESS_TOKEN_TTL_SECONDS` (padrão 300 s, entre 60 e 3600). Reduza esse valor se precisar de efeito mais rápido.
+- Revogação distribuída e refresh tokens serão tratados em etapa própria.
+
+### Exemplos
+
+```powershell
+$login = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8002/api/auth/login/ -ContentType application/json -Body (@{ email = "admin@exemplo.edu"; password = Read-Host "Senha" } | ConvertTo-Json)
+$auth = @{ Authorization = "Bearer $($login.access_token)" }
+
+Invoke-RestMethod -Uri "http://127.0.0.1:8002/api/users/?role=advisor&is_active=true&search=silva&page=1&page_size=20" -Headers $auth
+
+$novo = @{ name = "Ana Souza"; email = "ana@exemplo.edu"; role = "student"; course_id = "00000000-0000-0000-0000-000000000000"; password = Read-Host "Senha inicial" } | ConvertTo-Json
+$conta = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8002/api/users/ -Headers $auth -ContentType application/json -Body $novo
+
+Invoke-RestMethod -Method Patch -Uri "http://127.0.0.1:8002/api/users/$($conta.id)/" -Headers $auth -ContentType application/json -Body (@{ course_id = "11111111-1111-1111-1111-111111111111" } | ConvertTo-Json)
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8002/api/users/$($conta.id)/deactivate/" -Headers $auth
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8002/api/users/$($conta.id)/activate/" -Headers $auth
+```
+
+A listagem aceita `role`, `course_id`, `is_active` (`true` ou `false`), `search` (nome ou e-mail, sem diferenciar maiúsculas, até 100 caracteres), `page` e `page_size` (padrão 20, máximo 100). Parâmetros desconhecidos resultam em 400. A resposta contém `results`, `page`, `page_size` e `has_next`, com ordenação estável por e-mail. Filtros e paginação são executados no PostgreSQL.
 
 ## Contrato JWT emitido
 
@@ -149,7 +259,20 @@ docker compose --env-file .env -f infrastructure/compose.yaml -f infrastructure/
 
 ## Criação de usuários
 
-Contas são criadas somente por quem tem acesso administrativo ao serviço. A senha é solicitada duas vezes no terminal ou lida da entrada padrão com `--password-stdin`, e nunca aparece na saída nem nos argumentos.
+Há dois caminhos, que usam o mesmo caso de uso e as mesmas validações:
+
+| Caminho | Uso |
+| --- | --- |
+| `create_academic_user` (CLI) | Operação confiável, com acesso ao servidor. Único meio de criar contas `admin`, inclusive o primeiro administrador. A auditoria registra o ator como nulo. |
+| `POST /api/users/` | Administrador ativo autenticado. Cria `student`, `advisor` ou `coordinator`. |
+
+Na CLI, a senha é solicitada duas vezes no terminal ou lida da entrada padrão com `--password-stdin`, e nunca aparece na saída nem nos argumentos. O primeiro administrador precisa de `--course-id` para conseguir token e usar a API:
+
+```powershell
+python manage.py create_academic_user --email admin@exemplo.edu --name "Administração" --role admin --course-id 00000000-0000-0000-0000-000000000000
+```
+
+Exemplo de conta acadêmica pela CLI:
 
 ```powershell
 python manage.py create_academic_user --email ana@exemplo.edu --name "Ana Souza" --role student --course-id 00000000-0000-0000-0000-000000000000
@@ -179,11 +302,30 @@ python manage.py test
 
 Os testes geram chaves RSA em memória e usam cache local isolado. Eles cobrem hash de senha, normalização e unicidade do e-mail, constraints, cadastro fechado, login válido e inválido, conta inativa, e-mail inexistente, campos privilegiados no corpo, limitação de tentativas, chave ausente ou inválida, cabeçalho e claims do JWT, expiração, papéis, separação entre `sub` e `academic_id`, a política de orientadores e o perfil autenticado.
 
+`test_administration` cobre:
+
+- criação autorizada e negada (sem token, por estudante, orientador ou coordenador);
+- e-mail duplicado e dados inválidos;
+- tentativa de criar administrador;
+- filtros, busca e paginação;
+- consulta por UUID;
+- alterações permitidas e campos imutáveis;
+- elevação de privilégio;
+- ativação e desativação, inclusive administrador desativado com JWT antigo e papel lido do banco;
+- proteção do último administrador;
+- rollback e imutabilidade da auditoria;
+- efeito das mudanças nos novos tokens.
+
+`test_administration_concurrency` usa `TransactionTestCase` e duas threads com conexões próprias para comprovar a serialização por `SELECT ... FOR UPDATE`, inclusive dois administradores tentando desativar um ao outro.
+
 `identity.tests.test_thesis_compatibility` executa em subprocesso o `AcademicTokenAuthentication` original do thesis-service, com as configurações dele, sobre tokens emitidos pelo login real. O teste confirma a aceitação, os valores da identidade acadêmica e a recusa de uma chave não confiável. Ele é ignorado quando o código do thesis-service não está presente, como dentro da imagem do identity.
 
 ## Segurança e limitações
 
-- Não há refresh token nem revogação. Um token continua válido no thesis-service até `exp`, mesmo após desativar a conta. Por isso a duração é curta.
+- Não há refresh token nem revogação. Um token continua válido no thesis-service até `exp`, mesmo após desativar a conta ou mudar seu papel. Por isso a duração é curta. A administração deste serviço consulta o banco e não sofre esse atraso.
+- A senha inicial é definida pelo administrador. Não há troca obrigatória no primeiro acesso, troca pelo próprio titular nem recuperação. Fora do ambiente local, use HTTPS.
+- Administradores só são criados, promovidos ou rebaixados por operação confiável no servidor. A CLI atual cria contas, mas não altera o papel de contas existentes.
+- A auditoria administrativa é consultada pelo banco. Não há API de leitura de auditoria.
 - Coordenadores e administradores atuam em um único curso por conta. O token para outro curso exige outra conta ou um modelo futuro de vínculos múltiplos.
 - O limite de falhas usa `REMOTE_ADDR`. Atrás de um proxy reverso, configure `ALLAUTH_TRUSTED_PROXY_COUNT` ou o cabeçalho confiável do allauth, ou o limite por IP passará a valer para o proxy.
 - Logins bem-sucedidos não são limitados nem auditados nesta etapa.
@@ -193,4 +335,4 @@ Os testes geram chaves RSA em memória e usam cache local isolado. Eles cobrem h
 
 - **thesis-service:** integrado no ambiente Docker local, com a chave pública montada como secret, `THESIS_JWT_ISSUER=urn:tcc:identity` e `THESIS_JWT_AUDIENCE=urn:tcc:api`. O contrato não mudou.
 - **Outros serviços:** podem validar o mesmo token com a chave pública. Públicos-alvo por serviço podem ser adotados quando o contrato for estendido.
-- **Próximas etapas:** gestão de usuários com autorização de administrador, usuários externos temporários, recuperação de senha por e-mail, refresh tokens com rotação e revogação, publicação de JWKS para rotação de chaves, auditoria de autenticação e eventos Kafka de ciclo de vida das contas.
+- **Próximas etapas:** usuários externos temporários, troca de senha pelo titular, recuperação de senha por e-mail, refresh tokens com rotação e revogação, publicação de JWKS para rotação de chaves, auditoria de autenticação e eventos Kafka de ciclo de vida das contas.
