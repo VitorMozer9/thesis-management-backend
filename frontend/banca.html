@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0079b0">
+  <title>Banca | UFVJM TCCs</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/banca.js" defer></script>
+</head>
+<body data-page="banca">
+  <header class="site-header"><div class="header-content">
+    <a class="brand" href="publicados.html" aria-label="UFVJM TCCs, repositório"><img src="assets/logo-ufvjm-tccs.png" alt="UFVJM TCCs"></a>
+    <nav class="primary-nav" aria-label="Navegação principal"><a href="publicados.html">Publicados</a><a href="submissao.html">Submissão</a><a href="banca.html" aria-current="page">Banca</a></nav>
+    <button class="profile-button" type="button" data-open-settings aria-label="Configurações e perfil" title="Modo e API"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.3 21a7.7 7.7 0 0 1 15.4 0"/><circle cx="12" cy="12" r="10.5"/></svg></button>
+  </div></header>
+  <main class="content-wrap page-content review-page">
+    <div class="page-intro"><div><p class="eyebrow">Área do orientador e da banca</p><h1>Avaliação do trabalho</h1><p class="section-description">Consulte as informações do TCC e acompanhe a avaliação.</p></div><span class="mode-pill" data-mode-label>Demonstração</span></div>
+    <div class="notice notice-info" id="review-mode-note" role="status"></div>
+    <form id="review-lookup" class="review-lookup"><label for="review-id">Buscar TCC pelo ID</label><div class="inline-form"><input id="review-id" placeholder="UUID do trabalho"><button type="submit" class="btn btn-primary">Buscar</button></div></form>
+    <div id="review-main" hidden>
+      <section class="info-section" aria-labelledby="info-title"><h2 id="info-title">Informações</h2><div class="info-grid"><div><p id="review-student">Aluno — Curso</p><p id="review-advisor">Professor orientador</p></div><div><p id="review-title" class="review-thesis-title">Título do trabalho</p><p id="review-status" class="status-line"></p></div></div></section>
+      <section class="form-section"><h2>Trabalho</h2><div class="pdf-preview"><div class="pdf-preview-inner"><div class="pdf-sheet-icon" aria-hidden="true"><svg viewBox="0 0 80 90"><path d="M14 4h36l17 18v63H14Z"/><path d="M50 4v18h17"/><text x="40" y="54" text-anchor="middle">PDF</text></svg></div><div><strong id="review-pdf-title">Trabalho acadêmico</strong><p id="review-pdf-detail">Nenhum PDF anexado.</p></div></div><div class="pdf-preview-footer"><span id="review-file-info">Arquivo do trabalho</span><button class="btn btn-primary" type="button" id="download-button">Baixar</button></div></div></section>
+      <section class="form-section"><h2>Ressalvas da avaliação</h2><label class="field"><span class="sr-only">Ressalvas do avaliador</span><textarea id="review-feedback" rows="5" placeholder="Ressalvas da avaliação do orientador ou coordenador do trabalho"></textarea></label></section>
+      <section class="form-section defense-section"><h2>Marcação da banca</h2><label class="field date-field"><span class="sr-only">Data da banca</span><input id="defense-date" type="date"></label><label class="check-line"><input id="no-date" type="checkbox"><span>Não marcar data ainda</span></label></section>
+      <div class="review-actions"><button id="reject-button" class="btn btn-danger" type="button">Reprovar</button><div class="right-actions"><button id="pending-button" class="btn btn-warning" type="button">Aprovar com pendências</button><button id="approve-button" class="btn btn-success" type="button">Aprovar</button></div></div>
+      <p class="submit-footnote" id="review-footnote"></p>
+    </div>
+    <div id="review-empty" class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div><h2>Selecione um trabalho</h2><p>Use o identificador de um TCC para consultar seus dados e o status disponível na API.</p><a class="btn btn-primary" href="publicados.html">Ver trabalhos</a></div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0079b0">
+  <title>Submissão | UFVJM TCCs</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/core.js" defer></script>
+  <script src="js/submissao.js" defer></script>
+</head>
+<body data-page="submissao">
+  <header class="site-header"><div class="header-content">
+    <a class="brand" href="publicados.html" aria-label="UFVJM TCCs, repositório"><img src="assets/logo-ufvjm-tccs.png" alt="UFVJM TCCs"></a>
+    <nav class="primary-nav" aria-label="Navegação principal"><a href="publicados.html">Publicados</a><a href="submissao.html" aria-current="page">Submissão</a><a href="banca.html">Banca</a></nav>
+    <button class="profile-button" type="button" data-open-settings aria-label="Configurações e perfil" title="Modo e API"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.3 21a7.7 7.7 0 0 1 15.4 0"/><circle cx="12" cy="12" r="10.5"/></svg></button>
+  </div></header>
+  <main class="content-wrap page-content submission-page">
+    <div class="page-intro"><div><p class="eyebrow">Área do estudante</p><h1 id="submission-page-title">Submeter um novo trabalho</h1><p class="section-description">Preencha os dados, escreva o resumo e anexe o PDF.</p></div><span class="mode-pill" data-mode-label>Demonstração</span></div>
+    <div class="notice notice-info" id="submission-mode-note" role="status"></div>
+    <form id="thesis-form" autocomplete="off">
+      <div class="submission-grid">
+        <label class="field title-field"><span>Título do trabalho <b>*</b></span><input id="thesis-title" type="text" maxlength="255" placeholder="Título do trabalho" required></label>
+        <label class="field demo-only"><span>Curso <b>*</b></span><input id="course-name" type="text" placeholder="Curso" value="Sistemas de Informação"></label>
+        <label class="field api-only" hidden><span>UUID do curso <b>*</b></span><input id="course-id" type="text" placeholder="UUID do curso (course_id)" spellcheck="false"></label>
+        <label class="field"><span>Professor orientador</span><input id="advisor-name" type="text" placeholder="Nome do professor orientador"><small id="advisor-note">Informação de apresentação na demonstração.</small></label>
+        <label class="field"><span>Palavras-chave</span><input id="thesis-keywords" type="text" placeholder="Ex.: Django, microsserviços, Kafka"><small>Separe por vírgulas.</small></label>
+      </div>
+      <section class="identifiers-section api-only" hidden aria-labelledby="identifiers-title"><h2 id="identifiers-title">Identificação na API</h2><p>A API atual exige os UUIDs do aluno e do curso para criar um rascunho. Ainda não há endpoint de cadastro/seleção de usuários ou cursos.</p><label class="field"><span>UUID do aluno <b>*</b></span><input id="student-id" type="text" placeholder="student_id" spellcheck="false"></label></section>
+      <section class="form-section"><h2>Rascunho</h2><label class="field"><span class="sr-only">Resumo ou rascunho das informações do TCC</span><textarea id="thesis-abstract" rows="9" placeholder="Rascunho das informações do TCC e seu tema"></textarea></label></section>
+      <section class="form-section upload-section"><h2>Upload do trabalho</h2><label class="upload-box" id="upload-box" for="thesis-file"><svg viewBox="0 0 80 88" aria-hidden="true"><path d="M15 5h35l17 17v57H15Z"/><path d="M50 5v17h17"/><text x="41" y="51" text-anchor="middle">PDF</text><path d="M41 72v-19m-9 8 9-9 9 9"/></svg><strong id="upload-label">Enviar PDF</strong><span id="upload-description">Clique para selecionar até 20 MB</span><input id="thesis-file" type="file" accept="application/pdf,.pdf"></label><p class="file-hint" id="file-hint">Arquivo PDF, até 20 MB.</p></section>
+      <div id="submission-result" class="notice notice-success" role="status" hidden></div>
+      <div class="form-actions"><a class="btn btn-danger" href="publicados.html">Cancelar</a><div class="right-actions"><button class="btn btn-primary" id="save-button" type="submit">Salvar rascunho</button><button class="btn btn-success" id="submit-button" type="button">Submeter</button></div></div>
+      <p class="submit-footnote" id="submit-footnote">Na demonstração, a submissão altera apenas os dados locais.</p>
+    </form>
+  </main>
+</body>
+</html>
