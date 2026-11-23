@@ -163,3 +163,10 @@ REST_FRAMEWORK = {
 }
 
 KAFKA_PDF_GROUP_ID = os.getenv("KAFKA_PDF_GROUP_ID", "thesis-pdf-extraction-v1")
+
+THESIS_RATE_WINDOW_SECONDS = int(os.getenv("THESIS_RATE_WINDOW_SECONDS", "60"))
+THESIS_UPLOAD_LIMIT = int(os.getenv("THESIS_UPLOAD_LIMIT", "10"))
+THESIS_SUBMIT_LIMIT = int(os.getenv("THESIS_SUBMIT_LIMIT", "5"))
+
+if min(THESIS_RATE_WINDOW_SECONDS, THESIS_UPLOAD_LIMIT, THESIS_SUBMIT_LIMIT) < 1:
+    raise ValueError("Os limites de taxa e a janela devem ser positivos.")

@@ -26,6 +26,7 @@ from thesis.adapters.outbound.storage.local_file_storage import (
     LocalFileStorage,
 )
 
+from thesis.adapters.outbound.redis.redis_rate_limit import RedisRateLimit
 from thesis.adapters.outbound.redis.redis_thesis_lock import (
     RedisThesisLockAdapter,
 )
@@ -104,6 +105,9 @@ def build_upload_thesis_pdf_use_case(actor: AcademicIdentity) -> UploadThesisPdf
     redis_client = get_redis_client()
 
     return UploadThesisPdfUseCase(
+        rate_limit=RedisRateLimit(
+            redis_client, "upload", settings.THESIS_UPLOAD_LIMIT, settings.THESIS_RATE_WINDOW_SECONDS,
+        ),
         actor=actor,
         unit_of_work=DjangoUnitOfWork(),
         audit=DjangoAudit(),
@@ -155,6 +159,9 @@ def build_create_thesis_use_case(actor: AcademicIdentity) -> CreateThesisUseCase
 def build_submit_thesis_use_case(actor: AcademicIdentity) -> SubmitThesisUseCase:
 
     return SubmitThesisUseCase(
+        rate_limit=RedisRateLimit(
+            get_redis_client(), "submit", settings.THESIS_SUBMIT_LIMIT, settings.THESIS_RATE_WINDOW_SECONDS,
+        ),
         extractions=DjangoExtractionRepository(),
         actor=actor,
         audit=DjangoAudit(),

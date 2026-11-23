@@ -28,7 +28,7 @@ Linux:
 test -e .env || (umask 077 && cp .env.example .env)
 ```
 
-Preencha no `.env` as credenciais do PostgreSQL e a chave do Django. Em um banco já inicializado, use as credenciais correspondentes ao volume existente. O Compose fornece os endereços internos `postgres:5432`, `redis:6379` e `kafka:19092`. O listener Kafka do host permanece em `localhost:9092`. A API publica somente em `127.0.0.1:8001` por padrão, configurável com `THESIS_API_PORT`. O Gunicorn escuta em 8000 dentro do contêiner e o Compose fixa `DEBUG=False`. Inclua o hostname da requisição em `DJANGO_ALLOWED_HOSTS` e mantenha `127.0.0.1` para a verificação de saúde.
+Preencha no `.env` as credenciais do PostgreSQL e a chave do Django. Em um banco já inicializado, use as credenciais correspondentes ao volume existente. O Compose fornece os endereços internos `postgres:5432`, `redis:6379` e `kafka:19092`. O listener Kafka do host permanece em `localhost:9092`. A API publica somente em `127.0.0.1:8001` por padrão, configurável com `THESIS_API_PORT`. O Gunicorn escuta em 8000 dentro do contêiner e o Compose fixa `DEBUG=False`. Inclua o hostname da requisição em `DJANGO_ALLOWED_HOSTS` e mantenha `127.0.0.1` para a verificação de saúde. `THESIS_RATE_WINDOW_SECONDS`, `THESIS_UPLOAD_LIMIT` e `THESIS_SUBMIT_LIMIT` são repassados à API e aos workers, com padrões `60`, `10` e `5`. Todas as réplicas da API compartilham as cotas pelo Redis do Compose.
 
 Para aceitar tokens, preencha emissor e público-alvo conforme [o contrato JWT](IDENTITY.md). A configuração base aceita `THESIS_JWT_PUBLIC_KEY` em PEM. Para montar um arquivo externo somente para leitura, defina `THESIS_JWT_PUBLIC_KEY_HOST_FILE` como caminho absoluto do PEM público (no Windows, por exemplo, `C:/chaves/identity-public.pem`). Acrescente `-f infrastructure/compose.jwt-file.yaml` **depois** do arquivo Compose principal em todos os comandos relativos à pilha. O arquivo prevalece sobre o PEM do ambiente e precisa estar legível pelo UID 10001. A chave privada fica no emissor. Sem configuração de confiança, as rotas protegidas recusam acesso.
 
@@ -82,7 +82,9 @@ O serviço lê variáveis de ambiente e carrega o arquivo `.env` da raiz do repo
 | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG` | Chave obrigatória do Django e depuração opcional, desativada por padrão. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Nome do banco e credenciais obrigatórios. |
 | `DB_HOST`, `DB_PORT` | Host e porta do PostgreSQL. Padrões locais `127.0.0.1` e `5434`. |
-| `REDIS_URL` | Conexão para locks e estado do upload. Padrão `redis://127.0.0.1:6379/0`. |
+| `REDIS_URL` | Conexão para locks, estado do upload e controle de taxa. Padrão `redis://127.0.0.1:6379/0`. |
+| `THESIS_RATE_WINDOW_SECONDS`, `THESIS_UPLOAD_LIMIT`, `THESIS_SUBMIT_LIMIT` | Janela em segundos e cotas por conta para upload e submissão. Padrões `60`, `10` e `5`. Valores devem ser inteiros positivos. |
+| `REDIS_TEST_URL` | Banco Redis isolado usado pelos testes de adapters Redis. Padrão `redis://127.0.0.1:6379/15`. |
 | `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_THESIS_EVENTS_TOPIC` | Endereço inicial do broker e tópico. Padrões `localhost:9092` e `thesis.events.v1`. |
 | `KAFKA_PDF_GROUP_ID` | Grupo exclusivo do consumidor de submissões. Padrão `thesis-pdf-extraction-v1`. |
 | `THESIS_JWT_PUBLIC_KEY`, `THESIS_JWT_ISSUER`, `THESIS_JWT_AUDIENCE` | Chave pública, emissor e público-alvo exigidos para aceitar tokens. |
@@ -110,9 +112,9 @@ Envie `Authorization: Bearer <token>` em todas as requisições. O contrato desc
 | `GET /api/theses/` | Lista paginada. Filtra por aluno, orientador, curso e estado. `search` busca em título e palavras-chave. `page_size` tem padrão 20 e máximo 100. |
 | `GET /api/theses/{id}/` | Retorna os dados da monografia visível ao ator. |
 | `PATCH /api/theses/{id}/` | Atualiza título, resumo ou palavras-chave. A coordenação pode associar um orientador elegível em uma requisição exclusiva para esse campo. |
-| `POST /api/theses/{id}/pdf/` | Envie `file` em multipart. O serviço valida extensão, assinatura inicial de PDF e limite de 20 MiB e calcula o SHA-256. |
+| `POST /api/theses/{id}/pdf/` | Envie `file` em multipart. O serviço valida extensão, assinatura inicial de PDF e limite de 20 MiB e calcula o SHA-256. Sujeito a controle de taxa (429). |
 | `GET /api/theses/{id}/upload-status/` | Consulta o estado temporário registrado no Redis. |
-| `POST /api/theses/{id}/submit/` | Submete o rascunho completo. |
+| `POST /api/theses/{id}/submit/` | Submete o rascunho completo. Sujeito a controle de taxa (429). |
 | `POST /api/theses/{id}/approve/` e `POST /api/theses/{id}/reject/` | Orientador decide sobre uma submissão. Envie o corpo vazio. |
 | `DELETE /api/theses/{id}/` | Exclui um rascunho próprio e preserva arquivo e histórico. |
 
@@ -122,7 +124,29 @@ Cada criação, edição de metadados, associação de orientador, upload, submi
 
 O caso de uso exige uma identidade acadêmica verificada mesmo quando chamado diretamente. A auditoria registra sucessos na mesma transação PostgreSQL da escrita de negócio e, nas operações que geram eventos, da Outbox. Um erro na auditoria desfaz essas escritas. Requisições negadas e transações revertidas não geram linha de sucesso. O registro contém somente identificadores e dados da operação, sem cópia do token, dos metadados textuais ou do PDF.
 
-Os PDFs ficam sob `media/` no diretório do serviço. O upload grava um novo arquivo antes de atualizar sua referência e a auditoria no PostgreSQL. Se essa etapa falhar, tenta remover o novo arquivo. O Redis acompanha o processamento separadamente. Uma interrupção entre etapas, uma falha de limpeza ou o rollback posterior de uma transação externa pode deixar arquivo órfão ou estado temporário divergente. A substituição e a exclusão preservam arquivos anteriores. A retenção e a reconciliação do armazenamento ainda dependem de política operacional.
+Os PDFs ficam sob `media/` no diretório do serviço, na chave `theses/{thesis_id}/{uuid}.pdf`. O upload grava um novo arquivo antes de atualizar sua referência e a auditoria no PostgreSQL. Se essa etapa falhar, tenta remover o novo arquivo. O Redis acompanha o processamento separadamente. Uma interrupção entre etapas, uma falha de limpeza ou o rollback posterior de uma transação externa pode deixar arquivo órfão ou estado temporário divergente. A substituição e a exclusão preservam arquivos anteriores. A retenção e a reconciliação do armazenamento ainda dependem de política operacional.
+
+### PDFs duplicados e integridade SHA-256
+
+O SHA-256 é calculado em blocos de 1 MiB, junto com a verificação do limite de 20 MiB, antes de qualquer gravação. O arquivo atual do rascunho é reaproveitado somente quando todas as condições abaixo valem:
+
+- o hash enviado é igual ao `file_sha256` registrado na própria monografia;
+- a chave registrada pertence ao prefixo `theses/{thesis_id}/` da mesma monografia;
+- o arquivo existe e o SHA-256 recalculado a partir dos bytes armazenados confere.
+
+Nesse caso não há nova cópia, mas a referência é regravada com a verificação otimista de `update_draft` e a auditoria registra `pdf_uploaded`. Se o arquivo estiver ausente, ilegível ou com hash divergente, o serviço registra um aviso no log e grava uma nova cópia íntegra em outra chave. Conteúdo diferente sempre gera nova chave. Monografias diferentes nunca compartilham o mesmo arquivo físico, mesmo com conteúdo idêntico.
+
+Uma falha do PostgreSQL desfaz a referência e a auditoria. Um arquivo reaproveitado nunca é removido nesse caso, e um arquivo novo é removido. Somente rascunhos aceitam upload. Monografias submetidas ou avaliadas não têm o arquivo substituído. O repositório filtra as monografias pelo ator, por isso o upload em rascunho alheio responde 404. Duas requisições simultâneas no mesmo rascunho são serializadas pelo lock Redis (a segunda recebe 409). Se o lock expirar, a condição `previous` de `update_draft` impede sobrescrita silenciosa.
+
+## Controle de taxa
+
+Upload de PDF e submissão têm cotas independentes por conta autenticada. A identidade é o claim `sub` do JWT RS256 verificado (`AcademicIdentity.account_id`). Campos do corpo da requisição não são considerados. O contador fica no Redis compartilhado, na chave `thesis:rate:{upload|submit}:{account_id}`, em janela fixa de `THESIS_RATE_WINDOW_SECONDS`.
+
+O consumo é feito por um script Lua executado atomicamente no Redis: lê o contador, recusa quando a cota está esgotada e, caso contrário, incrementa e garante a expiração. Por isso vários processos Gunicorn e hosts compartilham a mesma cota sem condição de corrida. Requisições recusadas não incrementam o contador nem prolongam a janela. Uma chave sem expiração recebe uma nova expiração na próxima consulta.
+
+A cota é consumida somente depois da autenticação, do papel, da autorização por recurso, do status, da extensão, do tamanho, da assinatura e do SHA-256 do PDF e, na submissão, das regras de domínio. Requisições sem token (401), inválidas (400), negadas (403/404) ou em conflito de lock (409) não gastam cota. Ao exceder a cota, a API responde 429 com o cabeçalho `Retry-After`. Na submissão, o consumo ocorre dentro da transação, de modo que 429 não altera estado, Outbox nem auditoria. Uma falha que ocorra depois do consumo, como erro de banco, mantém a unidade consumida.
+
+Se o Redis estiver indisponível, upload e submissão falham de forma fechada com 503, sem gravar arquivo, referência, evento ou auditoria.
 
 A Outbox publica `thesis.created`, `thesis.submitted`, `thesis.advisor_approved` e `thesis.advisor_rejected`. Se o Kafka estiver indisponível, o evento continua pendente. A entrega é pelo menos uma vez e o identificador do evento é preservado nas retentativas. Os consumidores devem tratar duplicatas.
 
@@ -175,3 +199,14 @@ python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
 ```
+
+Se um banco de teste anterior já existir, `python manage.py test --keepdb` o reaproveita sem pedir confirmação para apagá-lo. `thesis.tests.test_rate_limit` cobre cota, isolamento por conta e operação, expiração, concorrência com 30 clientes Redis e falha de conexão. `thesis.tests.test_upload_protection` cobre as respostas 429 e 503, o consumo de cota apenas após validação e os cenários de deduplicação, integridade, falha do PostgreSQL, lock concorrente e status. Os testes de integração usam contas aleatórias e removem as chaves de cota ao terminar. O teste Kafka real é opcional e fica ignorado sem `TEST_KAFKA_BOOTSTRAP_SERVERS`.
+
+## Limitações de segurança
+
+- Não há emissor de tokens neste serviço. A confiança depende da chave pública, do emissor e do público-alvo configurados, e a revogação de tokens antes de `exp` depende do futuro `identity-service`.
+- O controle de taxa usa janela fixa e permite rajadas de até duas cotas na virada da janela. Ele limita por conta, não por IP. A proteção contra volume não autenticado depende de proxy reverso ou WAF.
+- O corpo multipart é recebido pelo Django antes da validação do caso de uso. O limite de 20 MiB também deve ser aplicado no proxy reverso.
+- A validação de PDF verifica assinatura e tamanho. A análise estrutural e a extração ficam no worker isolado, e não há antivírus.
+- O armazenamento é um volume local compartilhado. Arquivos substituídos ou órfãos não são removidos automaticamente.
+- Redis, PostgreSQL e Kafka usam listeners sem TLS na configuração local.

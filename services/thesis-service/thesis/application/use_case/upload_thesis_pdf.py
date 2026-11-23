@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from thesis.application.pdf_limits import MAX_PDF_BYTES
 from thesis.application.ports.unit_of_work import UnitOfWorkPort
+from thesis.application.ports.rate_limit import RateLimitPort
 from thesis.application.ports.audit import AuditAction, AuditPort
 from thesis.application.identity import AcademicIdentity, Role
 from thesis.domain.entities.thesis import Thesis
@@ -43,6 +44,7 @@ class UploadThesisPdfUseCase:
     unit_of_work: UnitOfWorkPort
     actor: AcademicIdentity
     audit: AuditPort
+    rate_limit: RateLimitPort
     max_file_size_bytes: int = MAX_PDF_BYTES
 
     def execute(
@@ -79,61 +81,24 @@ class UploadThesisPdfUseCase:
                     "Only draft theses can receive PDF uploads."
                 )
 
+            content.seek(0)
+
+            if content.read(5) != b"%PDF-":
+                raise InvalidThesisError("File does not have a valid PDF signature.")
+
+            content.seek(0)
+            digest = self.hash_pdf(content)
+            content.seek(0)
+
+            self.rate_limit.consume(self.actor.account_id)
+
             self.processing.set_status(
                 thesis_id,
                 UploadProcessingStatus.PROCESSING
             )
 
             try:
-                content.seek(0)
-
-                header = content.read(5)
-
-                if header != b"%PDF-":
-                    raise InvalidThesisError(
-                        "File does not have a valid PDF signature."
-                    )
-
-                content.seek(0)
-
-                file_hash = sha256()
-                total_bytes = 0
-
-                while chunk := content.read(1024 * 1024):
-
-                    total_bytes += len(chunk)
-
-                    if total_bytes > self.max_file_size_bytes:
-                        raise InvalidThesisError(
-                            "PDF exceeds the maximum allowed size."
-                        )
-
-                    file_hash.update(chunk)
-
-                content.seek(0)
-
-                file_key = (
-                    f"theses/{thesis.id}/{uuid4().hex}.pdf"
-                )
-
-                saved_key = self.storage.save(
-                    key=file_key,
-                    content=content,
-                )
-
-                try:
-                    updated_thesis = thesis.attach_file(
-                        file_key=saved_key,
-                        file_sha256=file_hash.hexdigest(),
-                    )
-
-                    with self.unit_of_work.transaction():
-                        saved_thesis = self.repository.update_draft(updated_thesis, previous=thesis)
-                        self.audit.record(self.actor, AuditAction.PDF_UPLOADED, thesis_id)
-
-                except Exception:
-                    self.storage.delete(saved_key)
-                    raise
+                saved_thesis = self.store_pdf(thesis, digest, content)
 
             except Exception:
 
@@ -162,3 +127,60 @@ class UploadThesisPdfUseCase:
                 )
 
             return saved_thesis
+
+    def hash_pdf(self, content: BinaryIO) -> str:
+        digest = sha256()
+        total_bytes = 0
+
+        while chunk := content.read(1024 * 1024):
+            total_bytes += len(chunk)
+
+            if total_bytes > self.max_file_size_bytes:
+                raise InvalidThesisError("PDF exceeds the maximum allowed size.")
+
+            digest.update(chunk)
+
+        return digest.hexdigest()
+
+    def stored_copy_matches(self, thesis: Thesis, digest: str) -> bool:
+        key = thesis.file_key
+
+        if not key or thesis.file_sha256 != digest:
+            return False
+
+        if not key.startswith(f"theses/{thesis.id}/"):
+            return False
+
+        try:
+            with self.storage.open(key) as stored:
+                if self.hash_pdf(stored) == digest:
+                    return True
+
+        except (OSError, ValueError, InvalidThesisError):
+            pass
+
+        logger.warning("Stored PDF for thesis %s is missing or corrupted.", thesis.id)
+
+        return False
+
+    def store_pdf(self, thesis: Thesis, digest: str, content: BinaryIO) -> Thesis:
+        reuse = self.stored_copy_matches(thesis, digest)
+        key = thesis.file_key
+
+        if not reuse:
+            key = self.storage.save(f"theses/{thesis.id}/{uuid4().hex}.pdf", content)
+
+        try:
+            updated = thesis.attach_file(key, digest)
+
+            with self.unit_of_work.transaction():
+                saved = self.repository.update_draft(updated, previous=thesis)
+                self.audit.record(self.actor, AuditAction.PDF_UPLOADED, thesis.id)
+
+        except Exception:
+            if not reuse:
+                self.storage.delete(key)
+
+            raise
+
+        return saved

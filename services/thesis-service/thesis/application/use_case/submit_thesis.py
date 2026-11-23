@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from thesis.application.ports.pdf_extraction import ExtractionRepository, SubmissionFile
+from thesis.application.ports.rate_limit import RateLimitPort
 from thesis.application.ports.audit import AuditAction, AuditPort
 from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisNotFoundError
@@ -24,6 +25,7 @@ class SubmitThesisUseCase:
     unit_of_work: UnitOfWorkPort
     actor: AcademicIdentity
     audit: AuditPort
+    rate_limit: RateLimitPort
     extractions: ExtractionRepository
 
     def execute(self, thesis_id: UUID) -> Thesis:
@@ -42,6 +44,8 @@ class SubmitThesisUseCase:
                     )
 
                 submitted_thesis = thesis.submit()
+
+                self.rate_limit.consume(self.actor.account_id)
 
                 saved_thesis = self.repository.save(
                     submitted_thesis

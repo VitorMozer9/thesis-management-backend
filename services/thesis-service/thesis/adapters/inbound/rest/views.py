@@ -2,7 +2,7 @@ from uuid import UUID
 
 from redis.exceptions import RedisError
 from rest_framework import status
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,6 +18,7 @@ from thesis.adapters.inbound.rest.serializers import (
 )
 from thesis.application.exceptions import ThesisAdvisorPermissionError, ThesisNotFoundError
 from thesis.application.identity import Role, ThesisAccessDenied
+from thesis.application.ports.rate_limit import RateLimitExceeded
 from thesis.application.ports.thesis_lock import ThesisAlreadyLockedError
 from thesis.domain.enums.thesis_status import ThesisStatus
 from thesis.domain.exceptions import (
@@ -43,6 +44,8 @@ class ThesisAPIView(APIView):
             exc = ConflictError(str(exc))
         elif isinstance(exc, (InvalidThesisError, ThesisSubmissionError)):
             exc = ValidationError({"detail": str(exc)})
+        elif isinstance(exc, RateLimitExceeded):
+            exc = Throttled(wait=exc.retry_after)
         elif isinstance(exc, RedisError):
             exc = ServiceUnavailableError("Redis is currently unavailable.")
 
