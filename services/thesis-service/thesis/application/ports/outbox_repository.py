@@ -1,15 +1,10 @@
 from abc import ABC, abstractmethod
 
-from thesis.domain.events.thesis_events import (
-    ThesisCreatedEvent,
-)
+from thesis.domain.events.thesis_events import ThesisEvent
 
 
 class OutboxRepositoryPort(ABC):
 
     @abstractmethod
-    def add(
-        self,
-        event: ThesisCreatedEvent,
-    ) -> None:
+    def add(self, event: ThesisEvent) -> None:
         pass

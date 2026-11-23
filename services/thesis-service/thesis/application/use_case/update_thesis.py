@@ -1,13 +1,11 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from thesis.domain.entities.thesis import Thesis
-
+from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.ports.thesis_repository import ThesisRepository
 from thesis.application.ports.thesis_lock import ThesisLockPort
 
-from thesis.application.exceptions import ThesisNotFoundError
-
+from thesis.domain.entities.thesis import Thesis
 from thesis.domain.exceptions import InvalidThesisError
 
 
@@ -23,13 +21,13 @@ class UpdateThesisUseCase:
         *,
         title: str | None = None,
         abstract: str | None = None,
-        keywords: tuple[str, ...] | None = None,
+        keywords: list[str] | tuple[str, ...] | None = None,
+        advisor_id: UUID | None = None,
     ) -> Thesis:
 
-        if (
-            title is None
-            and abstract is None
-            and keywords is None
+        if all(
+            value is None
+            for value in (title, abstract, keywords, advisor_id)
         ):
             raise InvalidThesisError(
                 "At least one field must be provided."
@@ -51,6 +49,9 @@ class UpdateThesisUseCase:
                 thesis = thesis.change_abstract(abstract)
 
             if keywords is not None:
-                thesis = thesis.change_keywords(keywords)
+                thesis = thesis.change_keywords(tuple(keywords))
+
+            if advisor_id is not None:
+                thesis = thesis.assign_advisor(advisor_id)
 
             return self.repository.save(thesis)

@@ -7,19 +7,26 @@ from django.db.models import F
 from django.utils import timezone
 
 from thesis.application.ports.outbox_dispatch import OutboxDispatchPort
-from thesis.domain.events.thesis_events import ThesisCreatedEvent
+
+from thesis.domain.events.thesis_events import (
+    ThesisCreatedEvent,
+    ThesisSubmittedEvent,
+    ThesisEvent,
+)
 
 from thesis.adapters.outbound.persistence.outbox_models import (
     OutboxEventModel,
 )
 
+EVENT_TYPES = {
+    ThesisCreatedEvent.event_type: ThesisCreatedEvent,
+    ThesisSubmittedEvent.event_type: ThesisSubmittedEvent,
+}
 
 class DjangoOutboxDispatchRepository(OutboxDispatchPort):
 
     @contextmanager
-    def lock_next_pending(
-        self,
-    ) -> Iterator[ThesisCreatedEvent | None]:
+    def lock_next_pending(self) -> Iterator[ThesisEvent | None]:
 
         with transaction.atomic():
 
@@ -28,7 +35,7 @@ class DjangoOutboxDispatchRepository(OutboxDispatchPort):
                 .select_for_update(skip_locked=True)
                 .filter(
                     published_at__isnull=True,
-                    event_type=ThesisCreatedEvent.event_type,
+                    event_type__in=EVENT_TYPES.keys(),
                 )
                 .order_by("occurred_at", "id")
                 .first()
@@ -38,17 +45,19 @@ class DjangoOutboxDispatchRepository(OutboxDispatchPort):
                 yield None
                 return
 
-            if record.payload.get("version") != ThesisCreatedEvent.version:
+            event_class = EVENT_TYPES[record.event_type]
+
+            if record.payload.get("version") != event_class.version:
                 raise ValueError(
                     f"Unsupported event version: {record.id}"
                 )
 
             if record.payload.get("thesis_id") != str(record.aggregate_id):
                 raise ValueError(
-                    f"Invalid thesis_id in outbox event: {record.id}"
+                    f"Invalid thesis_id in event {record.id}"
                 )
 
-            event = ThesisCreatedEvent(
+            event = event_class(
                 thesis_id=record.aggregate_id,
                 event_id=record.id,
                 occurred_at=record.occurred_at,

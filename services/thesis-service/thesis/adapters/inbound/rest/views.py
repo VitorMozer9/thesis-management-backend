@@ -16,6 +16,8 @@ from rest_framework.parsers import MultiPartParser
 from thesis.domain.exceptions import (
     InvalidThesisError,
     ThesisNotEditableError,
+    InvalidThesisStatusTransitionError,
+    ThesisSubmissionError,
 )
 
 from thesis.application.exceptions import ThesisNotFoundError
@@ -60,6 +62,8 @@ from config.dependencies import (
 from config.dependencies import (
     build_create_thesis_use_case,
 )
+
+from config.dependencies import build_submit_thesis_use_case
 
 class ThesisView(APIView):
 
@@ -238,5 +242,44 @@ class ThesisUploadStatusView(APIView):
                     else None
                 ),
             },
+            status=status.HTTP_200_OK,
+        )
+
+class ThesisSubmitView(APIView):
+
+    def post(self, request, thesis_id: UUID):
+
+        use_case = build_submit_thesis_use_case()
+
+        try:
+            thesis = use_case.execute(thesis_id)
+
+        except ThesisNotFoundError as exc:
+            raise NotFound(str(exc)) from exc
+
+        except ThesisAlreadyLockedError as exc:
+            raise ConflictError(str(exc)) from exc
+
+        except (
+            ThesisNotEditableError,
+            InvalidThesisStatusTransitionError,
+        ) as exc:
+            raise ConflictError(str(exc)) from exc
+
+        except (
+            ThesisSubmissionError,
+            InvalidThesisError,
+        ) as exc:
+            raise ValidationError(
+                {"detail": str(exc)}
+            ) from exc
+
+        except RedisError as exc:
+            raise ServiceUnavailableError(
+                "Redis temporarily unavailable."
+            ) from exc
+
+        return Response(
+            ThesisResponseSerializer(thesis).data,
             status=status.HTTP_200_OK,
         )

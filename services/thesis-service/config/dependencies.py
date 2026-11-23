@@ -54,6 +54,18 @@ from thesis.adapters.outbound.persistence.django_unit_of_work import (
     DjangoUnitOfWork,
 )
 
+from thesis.application.use_case.submit_thesis import (
+    SubmitThesisUseCase,
+)
+
+from thesis.adapters.outbound.persistence.django_outbox_repository import (
+    DjangoOutboxRepository,
+)
+
+from thesis.adapters.outbound.persistence.django_unit_of_work import (
+    DjangoUnitOfWork,
+)
+
 @lru_cache(maxsize=1)
 def get_redis_client() -> Redis:
 
@@ -119,6 +131,15 @@ def build_create_thesis_use_case() -> CreateThesisUseCase:
 
     return CreateThesisUseCase(
         repository=DjangoThesisRepository(),
+        outbox_repository=DjangoOutboxRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+    )
+
+def build_submit_thesis_use_case() -> SubmitThesisUseCase:
+
+    return SubmitThesisUseCase(
+        repository=DjangoThesisRepository(),
+        thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         outbox_repository=DjangoOutboxRepository(),
         unit_of_work=DjangoUnitOfWork(),
     )

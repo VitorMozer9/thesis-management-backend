@@ -1,6 +1,6 @@
 from django.urls import path
 
-from thesis.adapters.inbound.rest.views import (ThesisView,ThesisDetailView,ThesisPdfUploadView, ThesisUploadStatusView)
+from thesis.adapters.inbound.rest.views import (ThesisView,ThesisDetailView,ThesisPdfUploadView, ThesisUploadStatusView, ThesisSubmitView)
 
 urlpatterns = [
     path(
@@ -25,5 +25,11 @@ urlpatterns = [
         "theses/<uuid:thesis_id>/upload-status/",
         ThesisUploadStatusView.as_view(),
         name="thesis-upload-status",
+    ),
+
+    path(
+        "theses/<uuid:thesis_id>/submit/",
+        ThesisSubmitView.as_view(),
+        name="thesis-submit",
     ),
 ]
