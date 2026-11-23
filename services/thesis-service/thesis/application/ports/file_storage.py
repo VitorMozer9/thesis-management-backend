@@ -11,3 +11,6 @@ class FileStoragePort(Protocol):
 
     def delete(self, key: str) -> None:
         ...
+
+    def open(self, key: str) -> BinaryIO:
+        ...

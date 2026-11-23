@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.pdf_extraction import ExtractionRepository, SubmissionFile
 from thesis.application.ports.audit import AuditAction, AuditPort
 from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisNotFoundError
@@ -23,6 +24,7 @@ class SubmitThesisUseCase:
     unit_of_work: UnitOfWorkPort
     actor: AcademicIdentity
     audit: AuditPort
+    extractions: ExtractionRepository
 
     def execute(self, thesis_id: UUID) -> Thesis:
 
@@ -49,6 +51,7 @@ class SubmitThesisUseCase:
                     thesis_id=saved_thesis.id
                 )
 
+                self.extractions.enqueue(event, SubmissionFile(saved_thesis.file_key, saved_thesis.file_sha256))
                 self.outbox_repository.add(event)
                 self.audit.record(self.actor, AuditAction.SUBMITTED, saved_thesis.id)
 

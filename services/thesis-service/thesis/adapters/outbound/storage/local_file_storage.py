@@ -56,3 +56,6 @@ class LocalFileStorage(FileStoragePort):
     def delete(self, key: str) -> None:
         path = self._resolve_path(key)
         path.unlink(missing_ok=True)
+
+    def open(self, key: str) -> BinaryIO:
+        return self._resolve_path(key).open("rb")

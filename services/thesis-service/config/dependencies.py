@@ -5,6 +5,9 @@ from django.conf import settings
 from redis import Redis
 
 from thesis.adapters.outbound.persistence.django_audit import DjangoAudit
+from thesis.adapters.outbound.persistence.pdf_extraction import DjangoExtractionRepository
+from thesis.adapters.outbound.storage.pdf_text import PypdfTextExtractor
+from thesis.application.use_case.process_submitted_pdf import ProcessSubmittedPdfUseCase
 from thesis.application.identity import AcademicIdentity
 from thesis.application.use_case.get_thesis import GetThesisUseCase
 from thesis.application.use_case.update_thesis import (
@@ -152,6 +155,7 @@ def build_create_thesis_use_case(actor: AcademicIdentity) -> CreateThesisUseCase
 def build_submit_thesis_use_case(actor: AcademicIdentity) -> SubmitThesisUseCase:
 
     return SubmitThesisUseCase(
+        extractions=DjangoExtractionRepository(),
         actor=actor,
         audit=DjangoAudit(),
         repository=DjangoThesisRepository(actor),
@@ -190,3 +194,12 @@ def build_delete_thesis_use_case(actor: AcademicIdentity) -> DeleteThesisUseCase
 
 def build_get_thesis_use_case(actor: AcademicIdentity) -> GetThesisUseCase:
     return GetThesisUseCase(repository=DjangoThesisRepository(actor))
+
+
+def build_process_submitted_pdf_use_case() -> ProcessSubmittedPdfUseCase:
+    return ProcessSubmittedPdfUseCase(
+        repository=DjangoExtractionRepository(),
+        storage=LocalFileStorage(Path(settings.MEDIA_ROOT)),
+        extractor=PypdfTextExtractor(),
+        unit_of_work=DjangoUnitOfWork(),
+    )

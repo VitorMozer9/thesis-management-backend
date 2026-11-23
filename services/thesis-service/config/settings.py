@@ -155,3 +155,5 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
+
+KAFKA_PDF_GROUP_ID = os.getenv("KAFKA_PDF_GROUP_ID", "thesis-pdf-extraction-v1")
