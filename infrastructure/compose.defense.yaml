@@ -1,0 +1,81 @@
+x-defense: &defense
+  image: defense-service:local
+  pull_policy: never
+  init: true
+  restart: "on-failure:3"
+  environment:
+    DEFENSE_SECRET_KEY: ${DEFENSE_SECRET_KEY:?Configure DEFENSE_SECRET_KEY}
+    DEFENSE_DB_PASSWORD: ${DEFENSE_DB_PASSWORD:?Configure DEFENSE_DB_PASSWORD}
+    DEFENSE_DB_HOST: postgres
+    DEFENSE_DB_PORT: "5432"
+    DEFENSE_JWT_ISSUER: ${IDENTITY_JWT_ISSUER:?Configure IDENTITY_JWT_ISSUER}
+    DEFENSE_JWT_AUDIENCE: ${IDENTITY_JWT_AUDIENCE:?Configure IDENTITY_JWT_AUDIENCE}
+    DEFENSE_JWT_PUBLIC_KEY_FILE: /run/secrets/defense_public_key
+    DEFENSE_THESIS_API_URL: http://thesis-api:8000
+    DEFENSE_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    DEFENSE_KAFKA_TOPIC: ${DEFENSE_KAFKA_TOPIC:-defense.events.v1}
+  secrets:
+    - defense_public_key
+
+services:
+  defense-db-init:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DEFENSE_DB_PASSWORD: ${DEFENSE_DB_PASSWORD:?Configure DEFENSE_DB_PASSWORD}
+    volumes:
+      - ./postgres/defense-db.sql:/defense-db.sql:ro
+    command: ["sh", "-c", 'psql -v ON_ERROR_STOP=1 -v password="$$DEFENSE_DB_PASSWORD" -f /defense-db.sql']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  defense-migrate:
+    <<: *defense
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      defense-db-init:
+        condition: service_completed_successfully
+
+  defense-topic:
+    image: apache/kafka:4.4.0
+    restart: "on-failure:3"
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command: ["--bootstrap-server", "kafka:19092", "--create", "--if-not-exists", "--topic", "${DEFENSE_KAFKA_TOPIC:-defense.events.v1}", "--partitions", "1", "--replication-factor", "1"]
+    depends_on:
+      kafka:
+        condition: service_started
+
+  defense-api:
+    <<: *defense
+    build: ../services/defense-service
+    ports:
+      - "127.0.0.1:${DEFENSE_API_PORT:-8003}:8000"
+    depends_on:
+      defense-migrate:
+        condition: service_completed_successfully
+      thesis-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8000, timeout=3); c.request('GET', '/api/defenses/'); raise SystemExit(c.getresponse().status != 401)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  defense-outbox-worker:
+    <<: *defense
+    command: ["python", "manage.py", "run_outbox_worker"]
+    depends_on:
+      defense-migrate:
+        condition: service_completed_successfully
+      defense-topic:
+        condition: service_completed_successfully
+
+secrets:
+  defense_public_key:
+    file: ${THESIS_JWT_PUBLIC_KEY_HOST_FILE:?Informe a chave publica do identity-service}
