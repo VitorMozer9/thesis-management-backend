@@ -91,6 +91,8 @@ O serviço lê variáveis de ambiente e o `.env` da raiz do repositório.
 
 ### Chaves RSA
 
+No ambiente Docker local, a chave persistente de desenvolvimento fica em `%USERPROFILE%\.thesis-management\keys\` e é configurada conforme [o guia de infraestrutura](../../infrastructure/README.md#chaves-rsa).
+
 A chave privada fica somente com este serviço, **fora do repositório** (o `.gitignore` também ignora `*.pem` e `*.key`). O serviço aceita PEM RSA sem senha com pelo menos 2048 bits e recusa chaves fracas, cifradas ou inválidas. Sem chave válida, o login responde 503, o `/me/` responde 401 e os comandos administrativos de contas continuam funcionando. Para gerar uma chave de 3072 bits:
 
 ```powershell
@@ -121,11 +123,21 @@ python manage.py runserver 127.0.0.1:8002
 
 O serviço usa o banco `identity_db` e a role `identity_user` no mesmo servidor PostgreSQL 18, sem compartilhar tabelas com o `thesis_db`. O serviço Compose `identity-db-init` executa [identity-db.sql](../../infrastructure/postgres/identity-db.sql) com o superusuário configurado. O script cria a role e o banco apenas se não existirem, revoga o acesso público ao banco e concede conexão à role. Ele não remove, recria nem altera dados existentes. Uma nova execução é segura.
 
-A role recebe `CREATEDB` para que `python manage.py test` possa criar `test_identity_db` no ambiente local. Em produção, remova esse atributo com `ALTER ROLE identity_user NOCREATEDB` e execute os testes com outra credencial. Para trocar a senha, use `ALTER ROLE ... PASSWORD` e atualize `IDENTITY_DB_PASSWORD`.
+A role recebe `CREATEDB` somente para que `python manage.py test` possa criar e remover `test_identity_db` no ambiente local. Ela não é superusuária, não cria roles e não lê tabelas do `thesis_db`. O atributo permite criar bancos novos, mas não dá acesso aos bancos existentes de outras roles.
+
+Fora do desenvolvimento, aplique o menor privilégio:
+
+1. Remova o atributo com `ALTER ROLE identity_user NOCREATEDB`. A API e as migrations não precisam dele, porque a role é dona de `identity_db`.
+2. Execute os testes em um pipeline isolado, com uma role própria de teste que tenha `CREATEDB`, ou contra um servidor PostgreSQL descartável.
+3. Revogue de `PUBLIC` o `CONNECT` nos bancos dos outros serviços.
+
+Para trocar a senha, use `ALTER ROLE ... PASSWORD` e atualize `IDENTITY_DB_PASSWORD`.
 
 ## Docker Compose
 
-Os serviços de identidade ficam em `infrastructure/compose.identity.yaml`, separados do arquivo principal. Os comandos existentes do thesis-service continuam iguais. Execute na raiz do repositório:
+Para executar junto com o thesis-service, com confiança JWT configurada, usuários de desenvolvimento e o teste ponta a ponta, siga [o guia de infraestrutura](../../infrastructure/README.md).
+
+Os serviços de identidade ficam em `infrastructure/compose.identity.yaml`, separados do arquivo principal. Os comandos existentes do thesis-service continuam iguais. Para executar apenas o identity, na raiz do repositório:
 
 ```sh
 docker compose --env-file .env -f infrastructure/compose.yaml -f infrastructure/compose.identity.yaml -f infrastructure/compose.identity-key.yaml config --quiet
@@ -133,7 +145,7 @@ docker compose --env-file .env -f infrastructure/compose.yaml -f infrastructure/
 docker compose --env-file .env -f infrastructure/compose.yaml -f infrastructure/compose.identity.yaml -f infrastructure/compose.identity-key.yaml up -d --wait identity-api
 ```
 
-`compose.identity-key.yaml` monta o arquivo indicado em `IDENTITY_JWT_PRIVATE_KEY_HOST_FILE` (caminho absoluto) como secret somente leitura em `/run/secrets/identity_jwt_private_key`. O arquivo precisa estar legível pelo UID 10001. A ordem de inicialização é `identity-db-init`, `identity-migrate` e `identity-api`. A API publica em `127.0.0.1:8002` (`IDENTITY_API_PORT`) e fica saudável quando `/api/auth/me/` responde 401 sem token. Na rede interna do Compose, o endereço é `http://identity-api:8000`. Nenhum volume novo é criado. Para parar só este serviço, use `stop identity-api`.
+`compose.identity-key.yaml` monta o arquivo indicado em `IDENTITY_JWT_PRIVATE_KEY_HOST_FILE` (caminho absoluto) como secret somente leitura em `/run/secrets/identity_jwt_private_key`. O arquivo precisa estar legível pelo UID 10001. O Compose não recria o contêiner quando apenas o arquivo do secret muda. Nesse caso, use `up -d --no-deps --force-recreate identity-api`. A ordem de inicialização é `identity-db-init`, `identity-migrate` e `identity-api`. A API publica em `127.0.0.1:8002` (`IDENTITY_API_PORT`) e fica saudável quando `/api/auth/me/` responde 401 sem token. Na rede interna do Compose, o endereço é `http://identity-api:8000`. Nenhum volume novo é criado. Para parar só este serviço, use `stop identity-api`.
 
 ## Criação de usuários
 
@@ -179,6 +191,6 @@ Os testes geram chaves RSA em memória e usam cache local isolado. Eles cobrem h
 
 ## Integração futura
 
-- **thesis-service:** configurar a chave pública e o mesmo emissor e público-alvo em `.env`. O contrato não mudou.
+- **thesis-service:** integrado no ambiente Docker local, com a chave pública montada como secret, `THESIS_JWT_ISSUER=urn:tcc:identity` e `THESIS_JWT_AUDIENCE=urn:tcc:api`. O contrato não mudou.
 - **Outros serviços:** podem validar o mesmo token com a chave pública. Públicos-alvo por serviço podem ser adotados quando o contrato for estendido.
 - **Próximas etapas:** gestão de usuários com autorização de administrador, usuários externos temporários, recuperação de senha por e-mail, refresh tokens com rotação e revogação, publicação de JWKS para rotação de chaves, auditoria de autenticação e eventos Kafka de ciclo de vida das contas.

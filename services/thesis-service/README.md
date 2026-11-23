@@ -32,6 +32,8 @@ Preencha no `.env` as credenciais do PostgreSQL e a chave do Django. Em um banco
 
 Para aceitar tokens, preencha emissor e público-alvo conforme [o contrato JWT](IDENTITY.md). A configuração base aceita `THESIS_JWT_PUBLIC_KEY` em PEM. Para montar um arquivo externo somente para leitura, defina `THESIS_JWT_PUBLIC_KEY_HOST_FILE` como caminho absoluto do PEM público (no Windows, por exemplo, `C:/chaves/identity-public.pem`). Acrescente `-f infrastructure/compose.jwt-file.yaml` **depois** do arquivo Compose principal em todos os comandos relativos à pilha. O arquivo prevalece sobre o PEM do ambiente e precisa estar legível pelo UID 10001. A chave privada fica no emissor. Sem configuração de confiança, as rotas protegidas recusam acesso.
 
+No ambiente local integrado, o emissor é o `identity-service` (`THESIS_JWT_ISSUER=urn:tcc:identity`, `THESIS_JWT_AUDIENCE=urn:tcc:api`) e a chave pública vem de `export_jwt_public_key`. A inicialização conjunta, os usuários de desenvolvimento e o teste ponta a ponta estão descritos no [guia de infraestrutura](../../infrastructure/README.md).
+
 ### Build, inicialização e verificação
 
 Os comandos a seguir são iguais no PowerShell e no shell Linux:
