@@ -26,7 +26,7 @@ class SubmitThesisUseCase:
 
             with self.unit_of_work.transaction():
 
-                thesis = self.repository.find_by_id(thesis_id)
+                thesis = self.repository.find_by_id_for_update(thesis_id)
 
                 if thesis is None:
                     raise ThesisNotFoundError(

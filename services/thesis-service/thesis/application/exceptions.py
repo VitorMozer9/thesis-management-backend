@@ -5,3 +5,7 @@ class ThesisNotFoundError(Exception):
 class EventPublicationError(Exception):
     """Raised when a domain event cannot be published."""
     pass
+
+
+class ThesisAdvisorPermissionError(Exception):
+    """Raised when the actor is not the assigned advisor."""

@@ -43,6 +43,9 @@ class InMemoryThesisRepository:
         self.theses[thesis.id] = thesis
         return thesis
 
+    def update_draft(self, thesis):
+        return self.save(thesis)
+
     def find_by_id(self, thesis_id):
         return self.theses.get(thesis_id)
 

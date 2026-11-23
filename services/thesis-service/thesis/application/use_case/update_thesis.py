@@ -54,4 +54,4 @@ class UpdateThesisUseCase:
             if advisor_id is not None:
                 thesis = thesis.assign_advisor(advisor_id)
 
-            return self.repository.save(thesis)
+            return self.repository.update_draft(thesis)

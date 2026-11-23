@@ -9,6 +9,8 @@ from django.utils import timezone
 from thesis.application.ports.outbox_dispatch import OutboxDispatchPort
 
 from thesis.domain.events.thesis_events import (
+    ThesisAdvisorApprovedEvent,
+    ThesisAdvisorRejectedEvent,
     ThesisCreatedEvent,
     ThesisSubmittedEvent,
     ThesisEvent,
@@ -19,6 +21,8 @@ from thesis.adapters.outbound.persistence.outbox_models import (
 )
 
 EVENT_TYPES = {
+    ThesisAdvisorApprovedEvent.event_type: ThesisAdvisorApprovedEvent,
+    ThesisAdvisorRejectedEvent.event_type: ThesisAdvisorRejectedEvent,
     ThesisCreatedEvent.event_type: ThesisCreatedEvent,
     ThesisSubmittedEvent.event_type: ThesisSubmittedEvent,
 }

@@ -35,4 +35,37 @@ class ThesisSubmittedEvent:
 
     version: ClassVar[int] = 1
 
-ThesisEvent = ThesisCreatedEvent | ThesisSubmittedEvent
+@dataclass(frozen=True, slots=True)
+class ThesisAdvisorApprovedEvent:
+
+    thesis_id: UUID
+
+    event_id: UUID = field(default_factory=uuid4)
+
+    occurred_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    event_type: ClassVar[str] = "thesis.advisor_approved"
+
+    version: ClassVar[int] = 1
+
+@dataclass(frozen=True, slots=True)
+class ThesisAdvisorRejectedEvent:
+
+    thesis_id: UUID
+
+    event_id: UUID = field(default_factory=uuid4)
+
+    occurred_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    event_type: ClassVar[str] = "thesis.advisor_rejected"
+
+    version: ClassVar[int] = 1
+
+
+ThesisEvent = (
+    ThesisCreatedEvent | ThesisSubmittedEvent | ThesisAdvisorApprovedEvent | ThesisAdvisorRejectedEvent
+)

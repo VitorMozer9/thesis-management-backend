@@ -54,6 +54,9 @@ from thesis.adapters.outbound.persistence.django_unit_of_work import (
     DjangoUnitOfWork,
 )
 
+from thesis.application.use_case.delete_thesis import DeleteThesisUseCase
+from thesis.application.use_case.list_theses import ListThesesUseCase
+from thesis.application.use_case.review_thesis import ReviewThesisUseCase
 from thesis.application.use_case.submit_thesis import (
     SubmitThesisUseCase,
 )
@@ -141,5 +144,28 @@ def build_submit_thesis_use_case() -> SubmitThesisUseCase:
         repository=DjangoThesisRepository(),
         thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         outbox_repository=DjangoOutboxRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+    )
+
+
+def build_review_thesis_use_case() -> ReviewThesisUseCase:
+    return ReviewThesisUseCase(
+        repository=DjangoThesisRepository(),
+        thesis_lock=RedisThesisLockAdapter(get_redis_client()),
+        outbox_repository=DjangoOutboxRepository(),
+        unit_of_work=DjangoUnitOfWork(),
+    )
+
+
+def build_list_theses_use_case() -> ListThesesUseCase:
+
+    return ListThesesUseCase(repository=DjangoThesisRepository())
+
+
+def build_delete_thesis_use_case() -> DeleteThesisUseCase:
+
+    return DeleteThesisUseCase(
+        repository=DjangoThesisRepository(),
+        thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         unit_of_work=DjangoUnitOfWork(),
     )

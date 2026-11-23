@@ -118,7 +118,7 @@ class UploadThesisPdfUseCase:
                         file_sha256=file_hash.hexdigest(),
                     )
 
-                    saved_thesis = self.repository.save(
+                    saved_thesis = self.repository.update_draft(
                         updated_thesis
                     )
 

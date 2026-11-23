@@ -193,3 +193,13 @@ class Thesis:
             self,
             status=ThesisStatus.SUBMITTED,
         )
+
+    def review_by_advisor(self, decision: ThesisStatus) -> "Thesis":
+        if self.status != ThesisStatus.SUBMITTED:
+            raise InvalidThesisStatusTransitionError(
+                "Only submitted theses can be reviewed by the advisor."
+            )
+        if decision not in (ThesisStatus.ADVISOR_APPROVED, ThesisStatus.ADVISOR_REJECTED):
+            raise InvalidThesisStatusTransitionError("Invalid advisor decision.")
+
+        return replace(self, status=decision)

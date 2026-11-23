@@ -9,7 +9,7 @@ from thesis.application.ports.event_publisher import (
 )
 
 from thesis.domain.events.thesis_events import (
-    ThesisCreatedEvent,
+    ThesisEvent,
 )
 
 
@@ -28,7 +28,7 @@ class KafkaEventPublisher(EventPublisherPort):
 
     def publish(
         self,
-        event: ThesisCreatedEvent
+        event: ThesisEvent
     ) -> None:
 
         message = {

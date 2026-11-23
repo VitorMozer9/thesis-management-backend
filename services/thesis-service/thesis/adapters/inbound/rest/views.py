@@ -7,8 +7,9 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from rest_framework.exceptions import (
-    ValidationError,
     NotFound,
+    PermissionDenied,
+    ValidationError,
 )
 
 from rest_framework.parsers import MultiPartParser
@@ -126,6 +127,11 @@ class ThesisDetailView(APIView):
         )
 
         serializer.is_valid(raise_exception=True)
+
+        if "advisor_id" in serializer.validated_data:
+            raise PermissionDenied(
+                "Advisor assignment requires verified authorization."
+            )
 
         use_case = build_update_thesis_use_case()
 

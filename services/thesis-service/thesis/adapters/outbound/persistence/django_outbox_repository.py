@@ -3,7 +3,7 @@ from thesis.application.ports.outbox_repository import (
 )
 
 from thesis.domain.events.thesis_events import (
-    ThesisCreatedEvent,
+    ThesisEvent,
 )
 
 from thesis.adapters.outbound.persistence.outbox_models import (
@@ -15,7 +15,7 @@ class DjangoOutboxRepository(OutboxRepositoryPort):
 
     def add(
         self,
-        event: ThesisCreatedEvent,
+        event: ThesisEvent,
     ) -> None:
 
         OutboxEventModel.objects.create(
