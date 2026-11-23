@@ -30,7 +30,7 @@ class ThesisRepository(Protocol):
     ) -> list[Thesis]:
         ...
 
-    def update_draft(self, thesis: Thesis) -> Thesis:
+    def update_draft(self, thesis: Thesis, *, previous: Thesis | None = None) -> Thesis:
         ...
 
     def delete(self, thesis_id: UUID) -> None:

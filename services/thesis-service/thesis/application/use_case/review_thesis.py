@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisAdvisorPermissionError, ThesisNotFoundError
 from thesis.application.ports.outbox_repository import OutboxRepositoryPort
 from thesis.application.ports.thesis_lock import ThesisLockPort
@@ -17,11 +19,17 @@ class ReviewThesisUseCase:
     thesis_lock: ThesisLockPort
     outbox_repository: OutboxRepositoryPort
     unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
 
     def execute(
         self, thesis_id: UUID, *, authenticated_advisor_id: UUID, decision: ThesisStatus
     ) -> Thesis:
-        """The caller must obtain the advisor UUID from a trusted identity source."""
+        """O UUID do orientador deve vir da identidade verificada."""
+        self.actor.require_role(Role.ADVISOR)
+        if authenticated_advisor_id != self.actor.academic_id:
+            raise ThesisAdvisorPermissionError("Advisor identity mismatch.")
+
         with self.thesis_lock.lock(thesis_id), self.unit_of_work.transaction():
             thesis = self.repository.find_by_id_for_update(thesis_id)
             if thesis is None:
@@ -36,4 +44,11 @@ class ReviewThesisUseCase:
                 else ThesisAdvisorRejectedEvent
             )
             self.outbox_repository.add(event_type(thesis_id=reviewed.id))
+            action = (
+                AuditAction.ADVISOR_APPROVED
+                if decision == ThesisStatus.ADVISOR_APPROVED
+                else AuditAction.ADVISOR_REJECTED
+            )
+            self.audit.record(self.actor, action, thesis_id)
+
             return reviewed

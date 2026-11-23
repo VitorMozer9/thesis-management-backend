@@ -5,6 +5,9 @@ from hashlib import sha256
 from typing import BinaryIO
 from uuid import UUID, uuid4
 
+from thesis.application.ports.unit_of_work import UnitOfWorkPort
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.domain.entities.thesis import Thesis
 from thesis.domain.enums.thesis_status import ThesisStatus
 
@@ -36,6 +39,9 @@ class UploadThesisPdfUseCase:
     thesis_lock: ThesisLockPort
     processing: UploadProcessingPort
 
+    unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
     max_file_size_bytes: int = 20 * 1024 * 1024
 
     def execute(
@@ -45,6 +51,8 @@ class UploadThesisPdfUseCase:
         file_size: int,
         content: BinaryIO,
     ) -> Thesis:
+
+        self.actor.require_role(Role.STUDENT)
 
         if not filename.lower().endswith(".pdf"):
             raise InvalidThesisError(
@@ -118,9 +126,9 @@ class UploadThesisPdfUseCase:
                         file_sha256=file_hash.hexdigest(),
                     )
 
-                    saved_thesis = self.repository.update_draft(
-                        updated_thesis
-                    )
+                    with self.unit_of_work.transaction():
+                        saved_thesis = self.repository.update_draft(updated_thesis, previous=thesis)
+                        self.audit.record(self.actor, AuditAction.PDF_UPLOADED, thesis_id)
 
                 except Exception:
                     self.storage.delete(saved_key)

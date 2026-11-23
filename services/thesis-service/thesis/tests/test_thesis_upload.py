@@ -4,6 +4,8 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from thesis.tests.token_authority import TestTokenAuthority
+
 from django.test import TestCase, override_settings
 
 from thesis.domain.entities.thesis import Thesis
@@ -38,6 +40,8 @@ class ThesisUploadTests(TestCase):
         )
 
         DjangoThesisRepository().save(self.thesis)
+
+        TestTokenAuthority(self).login(self.thesis.student_id, self.thesis.course_id)
 
     def test_upload_pdf(self):
         content = b"%PDF-1.4\nTest PDF content"

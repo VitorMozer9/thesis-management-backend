@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.unit_of_work import UnitOfWorkPort
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity
 from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.ports.thesis_repository import ThesisRepository
 from thesis.application.ports.thesis_lock import ThesisLockPort
@@ -14,6 +17,9 @@ class UpdateThesisUseCase:
 
     repository: ThesisRepository
     thesis_lock: ThesisLockPort
+    unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
 
     def execute(
         self,
@@ -33,7 +39,12 @@ class UpdateThesisUseCase:
                 "At least one field must be provided."
             )
 
-        with self.thesis_lock.lock(thesis_id):
+        self.actor.authorize_patch(
+            advisor_id=advisor_id,
+            edits_metadata=any(value is not None for value in (title, abstract, keywords)),
+        )
+
+        with self.thesis_lock.lock(thesis_id), self.unit_of_work.transaction():
 
             thesis = self.repository.find_by_id(thesis_id)
 
@@ -41,6 +52,8 @@ class UpdateThesisUseCase:
                 raise ThesisNotFoundError(
                     f"Thesis {thesis_id} not found."
                 )
+
+            previous = thesis
 
             if title is not None:
                 thesis = thesis.change_title(title)
@@ -54,4 +67,8 @@ class UpdateThesisUseCase:
             if advisor_id is not None:
                 thesis = thesis.assign_advisor(advisor_id)
 
-            return self.repository.update_draft(thesis)
+            saved_thesis = self.repository.update_draft(thesis, previous=previous)
+            action = AuditAction.ADVISOR_ASSIGNED if advisor_id is not None else AuditAction.METADATA_UPDATED
+            self.audit.record(self.actor, action, thesis_id)
+
+            return saved_thesis

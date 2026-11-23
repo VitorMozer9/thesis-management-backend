@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisNotFoundError
 
 from thesis.application.ports.thesis_repository import ThesisRepository
@@ -19,8 +21,12 @@ class SubmitThesisUseCase:
     thesis_lock: ThesisLockPort
     outbox_repository: OutboxRepositoryPort
     unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
 
     def execute(self, thesis_id: UUID) -> Thesis:
+
+        self.actor.require_role(Role.STUDENT)
 
         with self.thesis_lock.lock(thesis_id):
 
@@ -44,5 +50,6 @@ class SubmitThesisUseCase:
                 )
 
                 self.outbox_repository.add(event)
+                self.audit.record(self.actor, AuditAction.SUBMITTED, saved_thesis.id)
 
                 return saved_thesis

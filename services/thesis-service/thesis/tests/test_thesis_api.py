@@ -2,6 +2,8 @@ import json
 
 from uuid import uuid4
 
+from thesis.tests.token_authority import TestTokenAuthority
+
 from django.test import TestCase
 
 from thesis.adapters.outbound.persistence.models import ThesisModel
@@ -16,6 +18,8 @@ class ThesisApiTests(TestCase):
             "student_id": str(uuid4()),
             "course_id": str(uuid4()),
         }
+
+        TestTokenAuthority(self).login(self.payload["student_id"], self.payload["course_id"])
 
     def test_create_thesis(self):
         response = self.client.post(

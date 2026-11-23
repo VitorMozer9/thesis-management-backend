@@ -4,6 +4,9 @@ from pathlib import Path
 from django.conf import settings
 from redis import Redis
 
+from thesis.adapters.outbound.persistence.django_audit import DjangoAudit
+from thesis.application.identity import AcademicIdentity
+from thesis.application.use_case.get_thesis import GetThesisUseCase
 from thesis.application.use_case.update_thesis import (
     UpdateThesisUseCase,
 )
@@ -80,22 +83,28 @@ def get_redis_client() -> Redis:
     )
 
 
-def build_update_thesis_use_case() -> UpdateThesisUseCase:
+def build_update_thesis_use_case(actor: AcademicIdentity) -> UpdateThesisUseCase:
 
     redis_client = get_redis_client()
 
     return UpdateThesisUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        unit_of_work=DjangoUnitOfWork(),
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         thesis_lock=RedisThesisLockAdapter(redis_client),
     )
 
 
-def build_upload_thesis_pdf_use_case() -> UploadThesisPdfUseCase:
+def build_upload_thesis_pdf_use_case(actor: AcademicIdentity) -> UploadThesisPdfUseCase:
 
     redis_client = get_redis_client()
 
     return UploadThesisPdfUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        unit_of_work=DjangoUnitOfWork(),
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         storage=LocalFileStorage(
             Path(settings.MEDIA_ROOT)
         ),
@@ -103,12 +112,12 @@ def build_upload_thesis_pdf_use_case() -> UploadThesisPdfUseCase:
         processing=RedisUploadProcessingAdapter(redis_client),
     )
 
-def build_get_thesis_upload_status_use_case() -> GetThesisUploadStatusUseCase:
+def build_get_thesis_upload_status_use_case(actor: AcademicIdentity | None) -> GetThesisUploadStatusUseCase:
 
     redis_client = get_redis_client()
 
     return GetThesisUploadStatusUseCase(
-        repository=DjangoThesisRepository(),
+        repository=DjangoThesisRepository(actor),
         processing=RedisUploadProcessingAdapter(redis_client),
     )
 
@@ -130,42 +139,54 @@ def build_event_publisher() -> EventPublisherPort:
         topic=settings.KAFKA_THESIS_EVENTS_TOPIC,
     )
 
-def build_create_thesis_use_case() -> CreateThesisUseCase:
+def build_create_thesis_use_case(actor: AcademicIdentity) -> CreateThesisUseCase:
 
     return CreateThesisUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         outbox_repository=DjangoOutboxRepository(),
         unit_of_work=DjangoUnitOfWork(),
     )
 
-def build_submit_thesis_use_case() -> SubmitThesisUseCase:
+def build_submit_thesis_use_case(actor: AcademicIdentity) -> SubmitThesisUseCase:
 
     return SubmitThesisUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         outbox_repository=DjangoOutboxRepository(),
         unit_of_work=DjangoUnitOfWork(),
     )
 
 
-def build_review_thesis_use_case() -> ReviewThesisUseCase:
+def build_review_thesis_use_case(actor: AcademicIdentity) -> ReviewThesisUseCase:
     return ReviewThesisUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         outbox_repository=DjangoOutboxRepository(),
         unit_of_work=DjangoUnitOfWork(),
     )
 
 
-def build_list_theses_use_case() -> ListThesesUseCase:
+def build_list_theses_use_case(actor: AcademicIdentity | None) -> ListThesesUseCase:
 
-    return ListThesesUseCase(repository=DjangoThesisRepository())
+    return ListThesesUseCase(repository=DjangoThesisRepository(actor))
 
 
-def build_delete_thesis_use_case() -> DeleteThesisUseCase:
+def build_delete_thesis_use_case(actor: AcademicIdentity) -> DeleteThesisUseCase:
 
     return DeleteThesisUseCase(
-        repository=DjangoThesisRepository(),
+        actor=actor,
+        audit=DjangoAudit(),
+        repository=DjangoThesisRepository(actor),
         thesis_lock=RedisThesisLockAdapter(get_redis_client()),
         unit_of_work=DjangoUnitOfWork(),
     )
+
+
+def build_get_thesis_use_case(actor: AcademicIdentity) -> GetThesisUseCase:
+    return GetThesisUseCase(repository=DjangoThesisRepository(actor))

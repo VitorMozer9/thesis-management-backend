@@ -13,12 +13,18 @@ from config.dependencies import build_review_thesis_use_case
 from thesis.adapters.outbound.messaging.kafka_event_publisher import KafkaEventPublisher
 from thesis.adapters.outbound.persistence.django_outbox_dispatch import DjangoOutboxDispatchRepository
 from thesis.adapters.outbound.persistence.outbox_models import OutboxEventModel
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisAdvisorPermissionError, ThesisNotFoundError
 from thesis.application.ports.thesis_lock import ThesisAlreadyLockedError
 from thesis.application.use_case.publish_outbox_events import PublishOutboxEventsUseCase
 from thesis.domain.entities.thesis import Thesis
 from thesis.domain.enums.thesis_status import ThesisStatus
 from thesis.domain.exceptions import InvalidThesisStatusTransitionError
+
+
+def review_for(thesis):
+    actor = AcademicIdentity(uuid4(), Role.ADVISOR, thesis.advisor_id, thesis.course_id, frozenset())
+    return build_review_thesis_use_case(actor)
 
 
 def submitted_thesis():
@@ -33,8 +39,9 @@ def submitted_thesis():
 
 class AdvisorReviewTests(TestCase):
     def setUp(self):
-        self.review = build_review_thesis_use_case()
-        self.thesis = self.review.repository.save(submitted_thesis())
+        self.thesis = submitted_thesis()
+        self.review = review_for(self.thesis)
+        self.review.repository.save(self.thesis)
 
     def decide(self, decision):
         return self.review.execute(
@@ -44,7 +51,7 @@ class AdvisorReviewTests(TestCase):
     def test_review_decisions_reach_publisher_and_preserve_event_id_on_retry(self):
         for decision in (ThesisStatus.ADVISOR_APPROVED, ThesisStatus.ADVISOR_REJECTED):
             with self.subTest(decision=decision):
-                self.thesis = self.review.repository.save(submitted_thesis())
+                self.thesis = self.review.repository.save(replace(self.thesis, id=uuid4()))
                 self.assertEqual(self.decide(decision).status, decision)
                 stored = self.review.repository.find_by_id(self.thesis.id)
                 self.assertEqual(stored.status, decision)
@@ -95,7 +102,7 @@ class AdvisorReviewTests(TestCase):
 
     def test_missing_thesis(self):
         with self.assertRaises(ThesisNotFoundError):
-            self.review.execute(uuid4(), authenticated_advisor_id=uuid4(), decision=ThesisStatus.ADVISOR_APPROVED)
+            self.review.execute(uuid4(), authenticated_advisor_id=self.thesis.advisor_id, decision=ThesisStatus.ADVISOR_APPROVED)
         self.assert_no_decision()
 
     def test_contended_redis_lock(self):
@@ -117,12 +124,13 @@ class AdvisorReviewTests(TestCase):
 
 class ConcurrentReviewTests(TransactionTestCase):
     def test_database_serializes_decisions_when_redis_lease_overlaps(self):
-        review = build_review_thesis_use_case()
-        thesis = review.repository.save(submitted_thesis())
+        thesis = submitted_thesis()
+        review = review_for(thesis)
+        review.repository.save(thesis)
         start = Barrier(2)
 
         def decide(decision):
-            worker = build_review_thesis_use_case()
+            worker = review_for(thesis)
             # Simulate two holders after the first Redis lease expires.
             worker.thesis_lock = Mock()
             worker.thesis_lock.lock.return_value = nullcontext()

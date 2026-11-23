@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity
 from thesis.domain.entities.thesis import Thesis
 
 from thesis.domain.events.thesis_events import (
@@ -26,6 +28,8 @@ class CreateThesisUseCase:
     repository: ThesisRepository
     outbox_repository: OutboxRepositoryPort
     unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
 
     def execute(
         self,
@@ -34,6 +38,8 @@ class CreateThesisUseCase:
         student_id: UUID,
         course_id: UUID,
     ) -> Thesis:
+
+        self.actor.authorize_creation(student_id, course_id)
 
         thesis = Thesis.create_draft(
             title=title,
@@ -51,5 +57,6 @@ class CreateThesisUseCase:
             )
 
             self.outbox_repository.add(event)
+            self.audit.record(self.actor, AuditAction.CREATED, saved_thesis.id)
 
         return saved_thesis

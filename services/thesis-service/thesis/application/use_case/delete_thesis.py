@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from thesis.application.ports.audit import AuditAction, AuditPort
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.ports.thesis_lock import ThesisLockPort
 from thesis.application.ports.thesis_repository import ThesisRepository
@@ -15,9 +17,13 @@ class DeleteThesisUseCase:
     repository: ThesisRepository
     thesis_lock: ThesisLockPort
     unit_of_work: UnitOfWorkPort
+    actor: AcademicIdentity
+    audit: AuditPort
 
     def execute(self, thesis_id: UUID) -> None:
-        """Delete a draft while retaining its PDF and Outbox history."""
+        """Exclui o rascunho e preserva o PDF e o histórico da Outbox."""
+        self.actor.require_role(Role.STUDENT)
+
         with self.thesis_lock.lock(thesis_id), self.unit_of_work.transaction():
             thesis = self.repository.find_by_id_for_update(thesis_id)
 
@@ -30,3 +36,4 @@ class DeleteThesisUseCase:
                 )
 
             self.repository.delete(thesis_id)
+            self.audit.record(self.actor, AuditAction.DELETED, thesis_id)

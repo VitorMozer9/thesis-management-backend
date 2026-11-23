@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from thesis.adapters.outbound.persistence.mappers import ThesisMapper
 from thesis.adapters.outbound.persistence.models import ThesisModel
+from thesis.application.identity import AcademicIdentity
 from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.ports.thesis_repository import ThesisRepository
 from thesis.domain.entities.thesis import Thesis
@@ -14,6 +15,11 @@ from thesis.domain.exceptions import ThesisNotEditableError
 
 
 class DjangoThesisRepository(ThesisRepository):
+
+    def __init__(self, actor: AcademicIdentity | None = None):
+        self.records = ThesisModel.objects.all()
+        if actor is not None:
+            self.records = self.records.filter(**actor.scope())
 
     def save(self, thesis: Thesis) -> Thesis:
 
@@ -28,7 +34,7 @@ class DjangoThesisRepository(ThesisRepository):
 
     def find_by_id(self, thesis_id: UUID) -> Thesis | None:
 
-        model = ThesisModel.objects.filter(
+        model = self.records.filter(
             id=thesis_id
         ).first()
 
@@ -38,7 +44,7 @@ class DjangoThesisRepository(ThesisRepository):
         return ThesisMapper.to_domain(model)
 
     def find_by_id_for_update(self, thesis_id: UUID) -> Thesis | None:
-        model = ThesisModel.objects.select_for_update().filter(id=thesis_id).first()
+        model = self.records.select_for_update().filter(id=thesis_id).first()
         return ThesisMapper.to_domain(model) if model is not None else None
 
     def list(
@@ -58,7 +64,7 @@ class DjangoThesisRepository(ThesisRepository):
             "course_id": course_id,
             "status": status,
         }
-        queryset = ThesisModel.objects.filter(
+        queryset = self.records.filter(
             **{field: value for field, value in filters.items() if value is not None}
         )
 
@@ -80,21 +86,25 @@ class DjangoThesisRepository(ThesisRepository):
 
         return [ThesisMapper.to_domain(model) for model in page]
 
-    def update_draft(self, thesis: Thesis) -> Thesis:
+    def update_draft(self, thesis: Thesis, *, previous: Thesis | None = None) -> Thesis:
         model_data = ThesisMapper.to_model_data(thesis)
 
-        updated = ThesisModel.objects.filter(
+        candidates = self.records.filter(
             id=thesis.id,
             status=ThesisStatus.DRAFT,
-        ).update(**model_data, updated_at=timezone.now())
+        )
+        if previous is not None:
+            candidates = candidates.filter(**ThesisMapper.to_model_data(previous))
+
+        updated = candidates.update(**model_data, updated_at=timezone.now())
 
         if updated:
             return thesis
 
-        if not ThesisModel.objects.filter(id=thesis.id).exists():
+        if not self.records.filter(id=thesis.id).exists():
             raise ThesisNotFoundError(f"Thesis {thesis.id} not found.")
 
-        raise ThesisNotEditableError("Only draft theses can be edited.")
+        raise ThesisNotEditableError("The thesis changed or is no longer a draft.")
 
     def delete(self, thesis_id: UUID) -> None:
-        ThesisModel.objects.filter(id=thesis_id).delete()
+        self.records.filter(id=thesis_id).delete()

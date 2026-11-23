@@ -1,6 +1,14 @@
 from django.urls import path
 
-from thesis.adapters.inbound.rest.views import (ThesisView,ThesisDetailView,ThesisPdfUploadView, ThesisUploadStatusView, ThesisSubmitView)
+from thesis.adapters.inbound.rest.views import (
+    ThesisDetailView,
+    ThesisPdfUploadView,
+    ThesisReviewView,
+    ThesisSubmitView,
+    ThesisUploadStatusView,
+    ThesisView,
+)
+from thesis.domain.enums.thesis_status import ThesisStatus
 
 urlpatterns = [
     path(
@@ -31,5 +39,15 @@ urlpatterns = [
         "theses/<uuid:thesis_id>/submit/",
         ThesisSubmitView.as_view(),
         name="thesis-submit",
+    ),
+    path(
+        "theses/<uuid:thesis_id>/approve/",
+        ThesisReviewView.as_view(decision=ThesisStatus.ADVISOR_APPROVED),
+        name="thesis-approve",
+    ),
+    path(
+        "theses/<uuid:thesis_id>/reject/",
+        ThesisReviewView.as_view(decision=ThesisStatus.ADVISOR_REJECTED),
+        name="thesis-reject",
     ),
 ]

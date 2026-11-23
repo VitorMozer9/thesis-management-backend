@@ -1,4 +1,8 @@
 import unittest
+from unittest.mock import Mock
+
+from thesis.application.identity import AcademicIdentity, Role
+from thesis.application.ports.audit import AuditPort
 
 from uuid import uuid4
 
@@ -43,7 +47,7 @@ class InMemoryThesisRepository:
         self.theses[thesis.id] = thesis
         return thesis
 
-    def update_draft(self, thesis):
+    def update_draft(self, thesis, *, previous=None):
         return self.save(thesis)
 
     def find_by_id(self, thesis_id):
@@ -63,6 +67,9 @@ class ThesisUseCaseTests(unittest.TestCase):
         )
 
         self.repository.save(self.thesis)
+        self.actor = AcademicIdentity(
+            uuid4(), Role.STUDENT, self.thesis.student_id, self.thesis.course_id, frozenset()
+        )
 
     def test_get_existing_thesis(self):
         use_case = GetThesisUseCase(
@@ -86,6 +93,9 @@ class ThesisUseCaseTests(unittest.TestCase):
         use_case = UpdateThesisUseCase(
             repository=self.repository,
             thesis_lock=FakeThesisLock(),
+            unit_of_work=FakeUnitOfWork(),
+            actor=self.actor,
+            audit=Mock(spec=AuditPort),
         )
 
         updated = use_case.execute(
@@ -106,6 +116,9 @@ class ThesisUseCaseTests(unittest.TestCase):
         use_case = UpdateThesisUseCase(
             repository=self.repository,
             thesis_lock=FakeThesisLock(),
+            unit_of_work=FakeUnitOfWork(),
+            actor=self.actor,
+            audit=Mock(spec=AuditPort),
         )
 
         updated = use_case.execute(
@@ -137,6 +150,9 @@ class ThesisUseCaseTests(unittest.TestCase):
         use_case = UpdateThesisUseCase(
             repository=self.repository,
             thesis_lock=FakeThesisLock(),
+            unit_of_work=FakeUnitOfWork(),
+            actor=self.actor,
+            audit=Mock(spec=AuditPort),
         )
 
         with self.assertRaises(ThesisNotEditableError):
@@ -145,55 +161,58 @@ class ThesisUseCaseTests(unittest.TestCase):
                 title="Forbidden change",
             )
 
-def test_create_thesis_with_outbox_event(self):
+    def test_create_thesis_with_outbox_event(self):
 
-    outbox_repository = FakeOutboxRepository()
+        outbox_repository = FakeOutboxRepository()
 
-    use_case = CreateThesisUseCase(
-        repository=self.repository,
-        outbox_repository=outbox_repository,
-        unit_of_work=FakeUnitOfWork(),
-    )
+        use_case = CreateThesisUseCase(
+            repository=self.repository,
+            outbox_repository=outbox_repository,
+            unit_of_work=FakeUnitOfWork(),
+            actor=self.actor,
+            audit=Mock(spec=AuditPort),
+        )
 
-    student_id = uuid4()
-    course_id = uuid4()
+        student_id = self.actor.academic_id
+        course_id = self.actor.course_id
 
-    thesis = use_case.execute(
-        title="Hexagonal Architecture",
-        abstract="A study about software architecture.",
-        student_id=student_id,
-        course_id=course_id,
-    )
+        thesis = use_case.execute(
+            title="Hexagonal Architecture",
+            abstract="A study about software architecture.",
+            student_id=student_id,
+            course_id=course_id,
+        )
 
-    saved_thesis = self.repository.find_by_id(thesis.id)
+        saved_thesis = self.repository.find_by_id(thesis.id)
 
-    self.assertIsNotNone(saved_thesis)
-    self.assertEqual(
-        saved_thesis.title,
-        "Hexagonal Architecture",
-    )
+        self.assertIsNotNone(saved_thesis)
+        self.assertEqual(
+            saved_thesis.title,
+            "Hexagonal Architecture",
+        )
 
-    self.assertEqual(
-        saved_thesis.status,
-        ThesisStatus.DRAFT,
-    )
+        self.assertEqual(
+            saved_thesis.status,
+            ThesisStatus.DRAFT,
+        )
 
-    self.assertEqual(
-        len(outbox_repository.events),
-        1,
-    )
+        self.assertEqual(
+            len(outbox_repository.events),
+            1,
+        )
 
-    event = outbox_repository.events[0]
+        event = outbox_repository.events[0]
 
-    self.assertEqual(
-        event.thesis_id,
-        thesis.id,
-    )
+        self.assertEqual(
+            event.thesis_id,
+            thesis.id,
+        )
 
-    self.assertEqual(
-        event.event_type,
-        "thesis.created",
-    )
+        self.assertEqual(
+            event.event_type,
+            "thesis.created",
+        )
+
 
 class FakeThesisLock(ThesisLockPort):
 

@@ -19,6 +19,8 @@ from thesis.adapters.outbound.persistence.django_outbox_repository import (
 )
 from thesis.adapters.outbound.persistence.outbox_models import OutboxEventModel
 from thesis.adapters.outbound.storage.local_file_storage import LocalFileStorage
+from thesis.tests.token_authority import TestTokenAuthority
+from thesis.application.identity import AcademicIdentity, Role
 from thesis.application.exceptions import ThesisNotFoundError
 from thesis.application.ports.thesis_lock import ThesisAlreadyLockedError
 from thesis.domain.entities.thesis import Thesis
@@ -34,7 +36,7 @@ from thesis.domain.exceptions import (
 class ThesisListTests(TestCase):
 
     def setUp(self):
-        self.use_case = build_list_theses_use_case()
+        self.use_case = build_list_theses_use_case(None)
         repository = self.use_case.repository
         draft = Thesis.create_draft("Distributed storage", "", uuid4(), uuid4())
 
@@ -123,16 +125,20 @@ class ThesisListTests(TestCase):
 class ThesisMutationTests(TestCase):
 
     def setUp(self):
-        self.delete = build_delete_thesis_use_case()
-        self.repository = self.delete.repository
-        self.update = build_update_thesis_use_case()
-        self.thesis = self.repository.save(
-            Thesis.create_draft("Draft", "", uuid4(), uuid4())
-            .attach_file("theses/draft.pdf", "a" * 64)
+        draft = Thesis.create_draft("Draft", "", uuid4(), uuid4())
+        student = AcademicIdentity(uuid4(), Role.STUDENT, draft.student_id, draft.course_id, frozenset())
+        self.advisor_id = uuid4()
+        coordinator = AcademicIdentity(
+            uuid4(), Role.COORDINATOR, uuid4(), draft.course_id, frozenset({self.advisor_id})
         )
 
+        self.delete = build_delete_thesis_use_case(student)
+        self.repository = self.delete.repository
+        self.update = build_update_thesis_use_case(coordinator)
+        self.thesis = self.repository.save(draft.attach_file("theses/draft.pdf", "a" * 64))
+
     def test_assign_advisor_to_draft(self):
-        advisor_id = uuid4()
+        advisor_id = self.advisor_id
 
         self.update.execute(self.thesis.id, advisor_id=advisor_id)
 
@@ -149,7 +155,7 @@ class ThesisMutationTests(TestCase):
                 with self.assertRaises(InvalidThesisStatusTransitionError):
                     self.delete.execute(self.thesis.id)
                 with self.assertRaises(ThesisNotEditableError):
-                    self.update.execute(self.thesis.id, advisor_id=uuid4())
+                    self.update.execute(self.thesis.id, advisor_id=self.advisor_id)
 
                 stored = self.repository.find_by_id(self.thesis.id)
                 self.assertEqual(stored.status, status)
@@ -169,7 +175,7 @@ class ThesisMutationTests(TestCase):
         with self.assertRaises(ThesisNotFoundError):
             self.delete.execute(self.thesis.id)
         with self.assertRaises(ThesisNotFoundError):
-            self.update.execute(self.thesis.id, advisor_id=uuid4())
+            self.update.execute(self.thesis.id, advisor_id=self.advisor_id)
 
     def test_delete_draft_retains_pdf(self):
         pdf = b"%PDF-example"
@@ -223,13 +229,15 @@ class ThesisMutationTests(TestCase):
                     user = get_user_model().objects.create_user(username="unmapped")
                     self.client.force_login(user)
 
-                self.assertEqual(self.client.get("/api/theses/").status_code, 405)
-                self.assertEqual(self.client.delete(detail).status_code, 405)
+                self.assertEqual(self.client.get("/api/theses/").status_code, 401)
+                self.assertEqual(self.client.delete(detail).status_code, 401)
                 response = self.client.patch(detail, data, content_type="application/json")
-                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.status_code, 401)
                 self.assertEqual(self.repository.find_by_id(self.thesis.id), self.thesis)
 
     def test_http_rejects_malformed_advisor_uuid(self):
+        TestTokenAuthority(self).login(self.thesis.student_id, self.thesis.course_id)
+
         response = self.client.patch(
             f"/api/theses/{self.thesis.id}/",
             {"advisor_id": "bad-id"},

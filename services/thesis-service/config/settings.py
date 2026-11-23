@@ -144,3 +144,14 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+THESIS_JWT_ISSUER = os.getenv("THESIS_JWT_ISSUER")
+THESIS_JWT_AUDIENCE = os.getenv("THESIS_JWT_AUDIENCE")
+THESIS_JWT_PUBLIC_KEY = os.getenv("THESIS_JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "thesis.adapters.inbound.rest.authentication.AcademicTokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+}
