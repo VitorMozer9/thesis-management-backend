@@ -15,3 +15,7 @@ Abra `http://127.0.0.1:8080` e use uma conta acadêmica de desenvolvimento. O ca
 ## Limites dos contratos
 
 A seleção de orientadores usa a lista de UUIDs elegíveis do token da coordenação. O contrato não fornece à coordenação um diretório com nomes de orientadores ou membros internos. O catálogo identifica cursos por UUID. O serviço de monografias permite enviar o PDF e consultar seu estado, enquanto o download disponível pela API é o da versão pública no Repository. O dashboard usa apenas os registros da primeira página consultada em cada serviço. A compatibilidade das respostas do backend permite consultar as palavras-chave salvas na monografia.
+
+## Testes
+
+Os testes de regressão usam apenas o Node.js 20 ou superior, sem dependências: `node --test frontend/tests/regression.test.mjs`.

@@ -254,3 +254,39 @@ h2 {font-size:21px;line-height:1.35;margin:0 0 18px}
   .primary-nav { justify-content:flex-start }
   .header-content:not(.header-login) { min-height:73px }
 }
+/* Review: shared states and components */
+.btn-secondary { background:#fff; color:var(--blue-dark); border:2px solid var(--blue); min-height:41px; padding:8px 18px }
+.btn-secondary:hover:not(:disabled) { background:var(--blue-soft) }
+.app-row .btn { min-height:38px; padding:7px 16px }
+.field:has(:required) > span:first-child::after { content:" *"; color:var(--red) }
+.field input[type="file"] { height:auto; padding:9px 10px; background:#fff }
+.field input:user-invalid,.field textarea:user-invalid { border-color:var(--red) }
+[aria-busy="true"] { opacity:.65; cursor:progress; transition:opacity .15s }
+#feedback { position:sticky; top:10px; z-index:20; box-shadow:0 6px 18px rgba(17,49,65,.12) }
+.app-panel .notice { margin:0 0 14px }
+.subsection { border-top:1px solid var(--line); margin-top:20px; padding-top:18px }
+.subsection h3 { font-size:17px; margin:0 0 10px }
+.subsection .app-form { margin-top:6px }
+.file-hint + .app-form { margin-top:6px }
+.row-meta { color:var(--muted); font-size:13px }
+.mode-pill.is-inactive { background:#ffebec; color:#8d2027 }
+.pagination { justify-content:center; margin-top:18px }
+.pagination span { font-weight:700; color:var(--muted); font-size:14px }
+.checklist { list-style:none; padding:0; margin:0 0 6px; display:grid; gap:6px; font-size:14px }
+.checklist li { display:flex; gap:9px; align-items:baseline }
+.checklist li > span { font-weight:700; width:1em; text-align:center; flex:none }
+.checklist .is-done { color:#176b21 }
+.checklist .is-missing { color:#8d2027 }
+.evaluation + .evaluation { border-top:1px solid var(--line); padding-top:12px }
+.empty-state { padding:32px 20px }
+.thesis-card .app-actions { margin-top:10px }
+.thesis-card .btn-secondary { background:#fff }
+@media(max-width:590px) {
+  .app-facts { grid-template-columns:1fr; gap:0 }
+  .app-facts dd { margin-bottom:8px }
+  .app-row > strong,.app-row > a { flex-basis:100% }
+  .app-row > .row-meta { flex-basis:100% }
+  .app-form > .btn { width:100% }
+  .app-form > .btn + .btn { margin:8px 0 0 }
+  .app-chart label { grid-template-columns:1fr; gap:2px }
+}
