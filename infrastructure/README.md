@@ -1,5 +1,7 @@
 # Ambiente Docker integrado
 
+Para iniciar os cinco microsserviços, o frontend e o Mailpit, siga o [guia de execução completo](../docs/GUIA_EXECUCAO.md).
+
 Este guia inicia o `thesis-service` e o `identity-service` juntos no ambiente local, com o identity assinando tokens JWT RS256 e o thesis validando esses tokens pela chave pública. Os comandos são executados **na raiz do repositório**, com Docker Desktop em modo Linux ou Docker Engine com Compose v2.
 
 ## Composição

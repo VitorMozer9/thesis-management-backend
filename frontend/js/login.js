@@ -1,20 +1,22 @@
-document.addEventListener('DOMContentLoaded',()=>{
-  const app=window.TccApp;
-  const real=app.mode()==='api';
-  const form=app.el('#login-form');
-  const note=app.el('#login-mode-notice');
-  const button=app.el('#login-submit');
-  const help=app.el('#login-help');
-  if(real){
-    note.textContent='Modo API real · autenticação não implementada';
-    button.textContent='Acessar área de trabalhos';
-    help.textContent='O backend atual não implementa login. Este botão abre as funcionalidades públicas existentes, sem autenticar usuários.';
-    app.el('#institutional-login').disabled=true;
-    app.el('#institutional-password').disabled=true;
-  }
-  form.addEventListener('submit',(event)=>{
-    event.preventDefault();
-    // Intencionalmente não enviar nem armazenar login/senha.
-    location.href='publicados.html';
+"use strict";
+
+const loginForm = document.querySelector("#login-form");
+if (new URLSearchParams(location.search).get("session") === "expired") announce("Sua sessão expirou. Entre novamente.");
+
+loginForm.addEventListener("submit", event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(loginForm));
+  loginForm.elements.password.value = "";
+  run(async () => {
+    try {
+      const response = await api("identity", "/api/auth/login/", { method: "POST", body: data, auth: false });
+      sessionStorage.setItem(sessionKey, response.access_token);
+      await api("identity", "/api/auth/me/");
+      location.replace("painel.html");
+    } catch (error) {
+      sessionStorage.removeItem(sessionKey);
+      if (error.status === 401) throw new Error("E-mail ou senha incorretos.");
+      throw error;
+    }
   });
 });

@@ -11,6 +11,10 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.key
+*.pem
+*.p12
+*.pfx
 
 # Django
 
@@ -44,8 +48,6 @@ dist/
 
 .idea/
 .vscode/
-
-# Operating systems
 
 .DS_Store
 Thumbs.db

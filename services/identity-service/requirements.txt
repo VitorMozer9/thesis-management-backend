@@ -2,8 +2,8 @@ cryptography==50.0.2
 Django==6.1.2
 django-allauth==65.22.1
 djangorestframework==3.18.3
+gunicorn==27.0.1; sys_platform == "linux"
 psycopg[binary]==3.3.6
 PyJWT[crypto]==2.15.1
 python-dotenv==1.2.4
 redis==8.1.0
-gunicorn==27.0.1; sys_platform == "linux"

@@ -226,3 +226,31 @@ h2 {font-size:21px;line-height:1.35;margin:0 0 18px}
  .pdf-preview-footer{padding:13px}.pdf-preview-footer .btn{padding:9px 15px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+.login-panel #password { margin-bottom:24px }
+.primary-nav { flex-wrap:wrap; justify-content:flex-end; padding-right:0; gap:8px 20px }
+.primary-nav a { font-size:15px }
+.primary-nav a[aria-current="page"] { border-bottom-color:var(--lime) }
+.primary-nav .btn { border:1px solid #ffffff80; min-height:36px; padding:6px 14px }
+.header-content:not(.header-login) { height:auto; min-height:98px; padding-block:12px }
+.app-panel { border:1px solid var(--line); border-radius:8px; padding:clamp(14px,3vw,26px); margin:0 0 24px; background:#fff }
+.app-panel h2 { font-size:20px; margin:0 0 16px; overflow-wrap:anywhere }
+.app-form { margin:14px 0 }
+.app-form > .btn + .btn { margin-left:8px }
+.app-form .submission-grid { gap:14px; margin:0 0 14px }
+.app-form textarea { min-height:98px }
+.app-form select { width:100%; border:1px solid #a6a6a6; background:var(--field); padding:10px; min-height:44px }
+.app-actions,.app-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px }
+.app-actions { margin-top:14px }
+.app-list { display:grid; gap:8px }
+.app-row { border-bottom:1px solid var(--line); padding:8px 0; overflow-wrap:anywhere }
+.app-row > strong,.app-row > a { flex:1 1 180px }
+.app-row .mode-pill { margin:0 }
+.app-facts { display:grid; grid-template-columns:minmax(85px, 1fr) minmax(0, 4fr); gap:6px 14px; overflow-wrap:anywhere }
+.app-facts dt { font-weight:700 }
+.app-facts dd { margin:0; white-space:pre-wrap }
+.app-chart label { display:grid; grid-template-columns:minmax(110px, 1fr) 2fr; gap:12px; align-items:center }
+.app-chart meter { width:100%; accent-color:var(--blue) }
+@media(max-width:590px) {
+  .primary-nav { justify-content:flex-start }
+  .header-content:not(.header-login) { min-height:73px }
+}

@@ -3,38 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0079b0">
   <title>Entrar | UFVJM TCCs</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/config.js" defer></script>
   <script src="js/core.js" defer></script>
   <script src="js/login.js" defer></script>
 </head>
-<body data-page="login">
-  <header class="site-header">
-    <div class="header-content header-login">
-      <a class="brand" href="index.html" aria-label="UFVJM TCCs, início"><img src="assets/logo-ufvjm-tccs.png" alt="UFVJM TCCs"></a>
-      <button class="header-action" type="button" data-open-settings aria-label="Configurações" title="Configurações da aplicação">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.89l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.06 1.57V21H9.3v-.78a1.7 1.7 0 0 0-1.06-1.57 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.57-1.06H2.5v-3.88h.53A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.89L4.2 7.05l2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 9.3 3.78V3h5.4v.78a1.7 1.7 0 0 0 1.06 1.57 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.57 1.06h.53v3.88h-.53A1.7 1.7 0 0 0 19.4 15Z"/></svg>
-      </button>
-    </div>
-  </header>
+<body>
+  <header class="site-header"><div class="header-content header-login">
+    <a class="brand" href="publicados.html"><img src="assets/logo-ufvjm-tccs.png" alt="UFVJM TCCs"></a>
+  </div></header>
   <main class="login-main">
     <section class="login-panel" aria-labelledby="login-heading">
       <img class="login-brand" src="assets/logo-ufvjm-tccs.png" alt="UFVJM TCCs">
       <h1 id="login-heading" class="sr-only">Login institucional</h1>
-      <div id="login-mode-notice" class="login-mode-notice">Prévia do sistema · ambiente de demonstração</div>
-      <form id="login-form" novalidate>
-        <label for="institutional-login">Login institucional</label>
-        <div class="email-group">
-          <input id="institutional-login" type="text" autocomplete="off" placeholder="seu.usuario" aria-label="Usuário institucional">
-        </div>
-        <label for="institutional-password">Senha</label>
-        <input id="institutional-password" type="password" autocomplete="off" placeholder="••••••••" aria-describedby="password-note">
-        <p class="password-note" id="password-note">Não informe sua senha institucional real nesta demonstração.</p>
-        <button class="btn btn-lime login-submit" type="submit" id="login-submit">Entrar na demonstração</button>
+      <p id="feedback" class="notice" role="status" aria-live="polite" hidden></p>
+      <form id="login-form" method="post">
+        <label for="email">E-mail</label>
+        <div class="email-group"><input id="email" name="email" type="email" autocomplete="username" required></div>
+        <label for="password">Senha</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="btn btn-lime login-submit" type="submit">Entrar</button>
       </form>
-      <p class="login-help" id="login-help">O backend ainda não possui autenticação. A entrada é apenas demonstrativa.</p>
-      <a href="publicados.html" class="login-alt" id="login-alt">Explorar o repositório <span aria-hidden="true">→</span></a>
+      <a href="publicados.html" class="login-alt">Explorar o repositório →</a>
     </section>
   </main>
 </body>

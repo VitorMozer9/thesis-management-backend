@@ -1,75 +1,136 @@
-document.addEventListener('DOMContentLoaded',async()=>{
-  const app=window.TccApp;
-  const real=app.mode()==='api';
-  const lookup=app.el('#review-lookup');
-  const idInput=app.el('#review-id');
-  let record=null;
-  const note=app.el('#review-mode-note');
-  app.showNotice(note,real
-    ?'A API permite consultar os dados e o status do TCC por UUID, mas ainda não oferece endpoints para avaliação, marcação de banca ou download do PDF. Os controles de decisão estão desabilitados.'
-    :'Demonstração: as decisões abaixo alteram somente os dados armazenados neste navegador. Nenhuma avaliação é enviada ao backend.', 'info');
+"use strict";
 
-  function setReviewDisabled(state){
-    ['#reject-button','#pending-button','#approve-button','#review-feedback','#defense-date','#no-date'].forEach(s=>app.el(s).disabled=state);
+start(async profile => {
+  const list = el("div");
+  const detail = el("div");
+  const thesis = new URLSearchParams(location.search).get("thesis") || "";
+  let page = 1;
+  const capable = ["advisor", "coordinator"].includes(profile.role);
+
+  async function load(current = page) {
+    const data = await api("defense", defensePath + query({ page: current }));
+    page = current;
+    list.replaceChildren(section("Bancas", results(data.results, defense => el("article", { class: "app-row" },
+      el("strong", {}, label(defense.status)), el("span", {}, date(defense.starts_at)),
+      el("span", {}, defense.thesis_id), button("Detalhes", () => run(() => open(defense.id))))),
+    pagination(page, data.has_next, load)));
   }
-  function render(){
-    const exists=Boolean(record);
-    app.el('#review-main').hidden=!exists;
-    app.el('#review-empty').hidden=exists;
-    if(!exists)return;
-    const status=app.statusView(record);
-    app.el('#review-student').textContent=real?`Aluno: ${record.student_id||'não informado'} · Curso: ${record.course_id||'não informado'}`:`${record.author||'Aluno'} — ${record.course||'Curso não informado'}`;
-    app.el('#review-advisor').textContent=`Orientador: ${record.advisor||'não informado'}`;
-    app.el('#review-title').textContent=record.title||'Título não informado';
-    app.el('#review-status').textContent='Situação: '+status.label;
-    app.el('#review-pdf-title').textContent=record.file_name|| (record.file_key?'PDF associado ao TCC':'Nenhum PDF anexado');
-    app.el('#review-pdf-detail').textContent=record.file_key?`Arquivo armazenado: ${record.file_key}`:record.file_name?'Arquivo ilustrativo da demonstração, sem conteúdo para baixar.':'Nenhum arquivo foi enviado para este trabalho.';
-    app.el('#review-file-info').textContent=record.file_sha256?'Hash SHA-256: '+record.file_sha256.slice(0,16)+'…':record.file_name?'Arquivo de demonstração':'Sem arquivo';
-    const download=app.el('#download-button');download.disabled=true;
-    download.title='O backend atual não possui rota de download. Na demonstração não há PDF real anexado.';
-    app.el('#review-feedback').value=record.feedback||'';
-    app.el('#defense-date').value=record.reviewDate||'';
-    app.el('#no-date').checked=Boolean(record.noDate);
-    setReviewDisabled(real);
-    app.el('#defense-date').disabled=real||Boolean(record.noDate);
-    app.el('#review-footnote').textContent=real?'Avaliações, ressalvas e datas exibidas no protótipo não podem ser persistidas na API atual.':'As alterações de avaliação, ressalvas e data são apenas locais. O botão Baixar requer um futuro endpoint da API.';
+
+  async function open(id) {
+    const path = recordPath(defensePath, id);
+    const defense = await api("defense", path);
+    let work;
+    try {
+      work = await api("thesis", recordPath(thesisPath, defense.thesis_id));
+    } catch (error) {
+      if (![403, 404].includes(error.status)) throw error;
+    }
+    const manager = profile.role === "coordinator" || (profile.role === "advisor" && work?.advisor_id === profile.academic_id);
+    const editable = ["proposed", "awaiting_confirmations"].includes(defense.status);
+    const changes = async (suffix, body, method = "POST") => {
+      const response = await api("defense", path + suffix, { method, body });
+      await load();
+      await open(id);
+      return response;
+    };
+    const summary = section(work?.title || "Detalhes da banca", facts({
+      "Situação": label(defense.status), "Banca": id, "Monografia": defense.thesis_id,
+      "Início": date(defense.starts_at), "Término": date(defense.ends_at),
+      "Local ou reunião": defense.venue || defense.meeting_url
+    }));
+
+    if (manager && !["cancelled", "held"].includes(defense.status)) {
+      summary.append(actions(button("Cancelar banca", () => {
+        if (confirm("Cancelar esta banca?")) run(() => changes("cancel/"), "Banca cancelada.");
+      }, "danger")));
+    }
+    if (manager && defense.status === "scheduled") {
+      summary.append(actions(button("Registrar realização", () => run(() => changes("hold/"), "Realização registrada."),
+        "success", Date.parse(defense.ends_at) > Date.now())));
+    }
+    if (manager && editable) {
+      summary.append(form([
+        field("Início", "starts_at", { type: "datetime-local", required: true }),
+        field("Término", "ends_at", { type: "datetime-local", required: true }),
+        field("Local presencial", "venue", { maxlength: 255 }), field("Ou link HTTPS", "meeting_url", { type: "url" })
+      ], "Agendar", data => {
+        if (Boolean(data.venue.trim()) === Boolean(data.meeting_url.trim())) throw new Error("Informe um local ou um link HTTPS.");
+        return changes("schedule/", { ...data, starts_at: new Date(data.starts_at).toISOString(),
+          ends_at: new Date(data.ends_at).toISOString() });
+      }, "Banca agendada."));
+    }
+
+    const panels = [summary];
+    let own;
+    if (profile.role !== "student") {
+      const members = await api("defense", path + "members/");
+      own = members.find(member => member.academic_id === profile.academic_id);
+      const roster = section("Membros e confirmações", results(members, member => {
+        const memberPath = recordPath("members/", member.id);
+        return el("article", { class: "app-row" },
+          el("strong", {}, member.name || member.academic_id), el("span", {}, label(member.invite_status)),
+          editable && member.id === own?.id && member.invite_status === "pending" ?
+            actions(button("Confirmar", () => run(() => changes(memberPath + "response/", { accept: true }), "Presença confirmada.")),
+              button("Recusar", () => run(() => changes(memberPath + "response/", { accept: false }), "Convite recusado."), "danger")) : null,
+          manager && editable ? button("Remover", () => {
+            if (confirm("Remover o membro da banca?")) run(() => changes(memberPath, undefined, "DELETE"), "Membro removido.");
+          }, "danger") : null);
+      }));
+      if (manager && editable) {
+        roster.append(form([field("UUID acadêmico", "academic_id", { required: true })],
+          "Convidar membro interno", data => changes("members/", { kind: "internal", ...data }), "Convite registrado."),
+        form([field("Nome", "name", { required: true, maxlength: 200 }),
+          field("E-mail", "email", { type: "email", required: true, maxlength: 254 })], "Convidar membro externo", async data => {
+          const member = await changes("members/", { kind: "external", ...data });
+          if (member.token) {
+            detail.append(section("Credencial do convite externo", el("p", {}, "Copie o código agora e envie por um canal privado."),
+              facts({ "Código": member.token, "Expira em": date(member.expires_at) }),
+              link("Página do convite", "convite.html" + query({ defense: id, member: member.id }))));
+            detail.lastElementChild.scrollIntoView({ block: "start" });
+          }
+        }, "Convite registrado."));
+      }
+      panels.push(roster);
+    }
+
+    if (defense.status === "held") {
+      let result;
+      try {
+        result = await api("defense", path + "result/");
+      } catch (error) {
+        if (error.status !== 409) throw error;
+      }
+      if (manager || own?.invite_status === "confirmed") {
+        const evaluations = await api("defense", path + "evaluations/");
+        const panel = section("Avaliações", results(evaluations, item => facts({
+          "Avaliador": item.member_id, "Nota": String(item.grade), "Parecer": item.opinion,
+          "Recomendação": label(item.recommendation)
+        })));
+        if (!result && own?.invite_status === "confirmed" && !evaluations.some(item => item.member_id === own.id)) {
+          panel.append(form([
+            field("Nota", "grade", { type: "number", required: true, min: 0, max: 10, step: "0.01" }),
+            field("Parecer", "opinion", { type: "textarea", required: true, maxlength: 5000 }),
+            field("Recomendação", "recommendation", { options: [["approved", "Aprovar"], ["conditional", "Aprovar com ressalvas"], ["rejected", "Reprovar"]] })
+          ], "Registrar avaliação", data => changes("evaluations/", data), "Avaliação registrada."));
+        }
+        panels.push(panel);
+      }
+      panels.push(section("Resultado", result ? facts({ "Resultado": label(result.result), "Média": String(result.average) }) :
+        el("p", {}, "Aguardando conclusão das avaliações.")));
+    }
+    detail.replaceChildren(...panels);
+    detail.scrollIntoView({ block: "start" });
   }
-  async function open(id){
-    if(!app.validUuid(id)){app.toast('Informe um UUID válido.',true);return}
-    try{
-      record=real?await app.fetchThesis(id):app.getLocal(id,'demo');
-      if(!record)throw new Error('Trabalho não encontrado na demonstração.');
-      idInput.value=record.id;
-      history.replaceState(null,'','banca.html?id='+encodeURIComponent(record.id));
-      render();
-    }catch(error){record=null;render();app.toast(app.describeError(error),true)}
-  }
-  lookup.addEventListener('submit',event=>{event.preventDefault();open(idInput.value.trim())});
-  app.el('#no-date').addEventListener('change',event=>{
-    if(!record||real)return;
-    app.el('#defense-date').disabled=event.target.checked;
-    if(event.target.checked)app.el('#defense-date').value='';
-    record=app.upsert({...record,noDate:event.target.checked,reviewDate:app.el('#defense-date').value},'demo');
-  });
-  app.el('#review-feedback').addEventListener('change',event=>{
-    if(record&&!real)record=app.upsert({...record,feedback:event.target.value},'demo');
-  });
-  app.el('#defense-date').addEventListener('change',event=>{
-    if(record&&!real)record=app.upsert({...record,reviewDate:event.target.value,noDate:false},'demo');
-  });
-  function decide(action){
-    if(!record||real)return;
-    const states={reject:['defense_rejected','rejected','Trabalho reprovado na demonstração.'],pending:['advisor_approved','pending','Aprovação com pendências registrada na demonstração.'],approve:['defense_approved','approved','Trabalho aprovado na demonstração.']};
-    const [status,reviewDecision,message]=states[action];
-    record=app.upsert({...record,status,reviewDecision,
-      feedback:app.el('#review-feedback').value,reviewDate:app.el('#defense-date').value,noDate:app.el('#no-date').checked},'demo');
-    app.toast(message);render();
-  }
-  app.el('#reject-button').addEventListener('click',()=>decide('reject'));
-  app.el('#pending-button').addEventListener('click',()=>decide('pending'));
-  app.el('#approve-button').addEventListener('click',()=>decide('approve'));
-  const searchId=new URLSearchParams(location.search).get('id');
-  if(searchId){await open(searchId)}
-  else if(!real){const demoRecords=app.records('demo');if(demoRecords.length)await open((demoRecords.find(r=>r.status==='submitted')||demoRecords[0]).id)}
-  render();
-});
+
+  const proposal = capable ? section("Nova proposta", form([
+    field("UUID da monografia aprovada pelo orientador", "thesis_id", { required: true, value: thesis })
+  ], "Criar proposta", async data => {
+    const created = await api("defense", defensePath, { method: "POST", body: data });
+    await load(1);
+    await open(created.id);
+  }, "Proposta criada.", true)) : null;
+  content.replaceChildren(...[proposal, list, detail].filter(Boolean));
+  await load();
+  const selected = new URLSearchParams(location.search).get("id");
+  if (selected) await open(selected);
+}, { roles: ["advisor", "coordinator", "student"] });

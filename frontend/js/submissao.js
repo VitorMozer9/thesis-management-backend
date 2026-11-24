@@ -1,140 +1,96 @@
-document.addEventListener('DOMContentLoaded',async()=>{
-  const app=window.TccApp;
-  const real=app.mode()==='api';
-  const id=new URLSearchParams(location.search).get('id');
-  const form=app.el('#thesis-form');
-  const resultBox=app.el('#submission-result');
-  const saveButton=app.el('#save-button');
-  const submitButton=app.el('#submit-button');
-  const fileInput=app.el('#thesis-file');
-  let current=null;
+"use strict";
 
-  app.els('.api-only').forEach(node=>node.hidden=!real);
-  app.els('.demo-only').forEach(node=>node.hidden=real);
-  app.el('#advisor-note').textContent=real?'Nome guardado apenas neste navegador; não há endpoint para vincular o orientador.':'Informação de apresentação na demonstração.';
-  app.showNotice(app.el('#submission-mode-note'),real
-    ?'Modo API real: Salvar cria/atualiza um rascunho e pode enviar o PDF. O endpoint de submissão definitiva ainda não existe, por isso o botão Submeter está desativado.'
-    :'Modo demonstração: dados e decisões ficam somente neste navegador. Salvar cria um rascunho; Submeter simula a mudança para análise.', 'info');
-  if(real){
-    submitButton.disabled=true;submitButton.title='Sem endpoint de submissão no backend atual.';
-    app.el('#submit-footnote').textContent='A API atual não oferece endpoint para submissão, vinculação de orientador ou catálogo de cursos.';
-  }
-  if(id){
-    try{
-      current=real?await app.fetchThesis(id):app.getLocal(id);
-      if(!current)throw new Error('Trabalho não encontrado no ambiente atual.');
-      if(current.status!=='draft'){
-        app.showNotice(app.el('#submission-mode-note'),'Esse trabalho não está em rascunho; o backend só permite editar ou enviar PDFs para trabalhos no status draft.','info');
-        saveButton.disabled=true;submitButton.disabled=true;
-      }
-      app.el('#submission-page-title').textContent='Editar rascunho';
-      app.el('#thesis-title').value=current.title||'';
-      app.el('#thesis-abstract').value=current.abstract||'';
-      app.el('#thesis-keywords').value=(current.keywords||[]).join(', ');
-      app.el('#course-name').value=current.course||'Sistemas de Informação';
-      app.el('#course-id').value=current.course_id||'';
-      app.el('#student-id').value=current.student_id||'';
-      app.el('#advisor-name').value=current.advisor||'';
-      if(current.file_key||current.file_name){
-        app.el('#file-hint').textContent=`Arquivo previamente associado: ${current.file_name||current.file_key}. Selecione outro PDF para substituí-lo.`;
-      }
-    }catch(error){
-      app.toast(app.describeError(error),true);saveButton.disabled=true;submitButton.disabled=true;
-      app.showNotice(app.el('#submission-mode-note'),`Não foi possível abrir o rascunho: ${app.describeError(error)}`,'error');
-    }
-  }
-  fileInput.addEventListener('change',()=>{
-    const file=fileInput.files?.[0];
-    app.el('#upload-label').textContent=file?'Arquivo selecionado':'Enviar PDF';
-    app.el('#upload-description').textContent=file?file.name:'Clique para selecionar até 20 MB';
-    app.el('#file-hint').textContent=file?`${(file.size/1024/1024).toFixed(2)} MB · ${file.name}`:'Arquivo PDF, até 20 MB.';
-  });
+start(async profile => {
+  const list = el("div");
+  const detail = el("div");
+  let page = 1;
+  const titleField = value => field("Título", "title", { value, required: true, maxlength: 255 });
+  const abstractField = value => field("Resumo", "abstract", { value, type: "textarea" });
+  const create = profile.role === "student" ? section("Novo rascunho",
+    form([titleField(""), abstractField("")], "Criar rascunho", async data => {
+      const work = await api("thesis", thesisPath, { method: "POST", body: {
+        ...data, student_id: profile.academic_id, course_id: profile.course_id
+      } });
+      await load(1);
+      await open(work.id);
+    }, "Rascunho criado.", true)) : null;
 
-  async function validateFile(file){
-    if(!file)return;
-    if(!/\.pdf$/i.test(file.name))throw new Error('Selecione um arquivo com extensão .pdf.');
-    if(file.size===0||file.size>20*1024*1024)throw new Error('O PDF deve ter entre 1 byte e 20 MB.');
-    const sig=new Uint8Array(await file.slice(0,5).arrayBuffer());
-    if(String.fromCharCode(...sig)!=='%PDF-')throw new Error('Arquivo inválido: assinatura %PDF- não encontrada.');
+  async function load(current = page) {
+    const data = await api("thesis", thesisPath + query({ page: current }));
+    page = current;
+    list.replaceChildren(section("Trabalhos", results(data.results, work => el("article", { class: "app-row" },
+      el("strong", {}, work.title), el("span", { class: "mode-pill" }, label(work.status)),
+      button("Detalhes", () => run(() => open(work.id))))), pagination(page, data.has_next, load)));
   }
 
-  async function saveDraft(shouldSubmit=false){
-    const title=app.el('#thesis-title').value.trim();
-    const abstract=app.el('#thesis-abstract').value.trim();
-    const keywordList=app.keywords(app.el('#thesis-keywords').value);
-    const advisor=app.el('#advisor-name').value.trim();
-    const course=app.el('#course-name').value.trim();
-    const courseId=app.el('#course-id').value.trim();
-    const studentId=app.el('#student-id').value.trim();
-    const file=fileInput.files?.[0];
-    if(!title)throw new Error('Informe o título do trabalho.');
-    if(title.length>255)throw new Error('O título deve conter até 255 caracteres.');
-    if(real && (!app.validUuid(courseId)||!app.validUuid(studentId)))throw new Error('Informe UUIDs válidos do curso e do aluno.');
-    if(!real&&!course)throw new Error('Informe o curso.');
-    await validateFile(file);
-    if(shouldSubmit && (!abstract||keywordList.length===0||!advisor||!(file||current?.file_name)))
-      throw new Error('Para simular a submissão, preencha resumo, orientador, palavras-chave e anexe um PDF.');
+  async function open(id) {
+    const path = recordPath(thesisPath, id);
+    const work = await api("thesis", path);
+    const draft = work.status === "draft";
+    const summary = section(work.title, facts({
+      "Situação": label(work.status), "Identificador": work.id, "Curso": work.course_id,
+      "Orientador": work.advisor_id || "Aguardando associação", "Resumo": work.abstract,
+      "Palavras-chave": work.keywords?.join(", "), "PDF": work.file_sha256 ? "Registrado" : "Pendente"
+    }));
+    const uploadStatus = el("p", { class: "file-hint" });
+    const status = async () => {
+      const data = await api("thesis", path + "upload-status/");
+      uploadStatus.textContent = "Estado do upload: " + (data.upload_status ? label(data.upload_status) :
+        (work.file_sha256 ? "PDF registrado" : "Nenhum upload recente"));
+    };
+    const mutate = async (method, suffix = "", body) => {
+      await api("thesis", path + suffix, { method, body });
+      await load();
+      if (method === "DELETE") detail.replaceChildren();
+      else await open(id);
+    };
+    summary.append(actions(button("Consultar upload", () => run(status))), uploadStatus);
 
-    if(!real){
-      const record={...current,id:current?.id||app.uuid(),title,abstract,student_id:current?.student_id||app.uuid(),
-        course_id:current?.course_id||app.uuid(),advisor,author:current?.author||'Aluno da demonstração',
-        course,keywords:keywordList,status:shouldSubmit?'submitted':'draft',
-        cover:current?.cover||2,year:new Date().getFullYear().toString(),
-        file_name:file?.name||current?.file_name||null,reviewDecision:null};
-      current=app.upsert(record,'demo');
-      history.replaceState(null,'','submissao.html?id='+encodeURIComponent(current.id));
-      app.showNotice(resultBox,shouldSubmit?'Submissão simulada: trabalho enviado para análise na demonstração.':'Rascunho salvo neste navegador.','success');
-      app.toast(shouldSubmit?'Submissão demonstrativa concluída.':'Rascunho salvo localmente.');
-      if(shouldSubmit){saveButton.disabled=true;submitButton.disabled=true;}
-      return;
+    if (profile.role === "student" && draft) {
+      summary.append(
+        form([titleField(work.title), abstractField(work.abstract),
+          field("Palavras-chave separadas por vírgulas", "keywords", { value: work.keywords?.join(", ") || "" })],
+        "Salvar metadados", data => mutate("PATCH", "", { ...data, keywords: words(data.keywords) }), "Metadados salvos."),
+        form([field("PDF de até 20 MiB", "file", { type: "file", required: true, accept: "application/pdf,.pdf" })],
+          "Enviar PDF", data => {
+            const payload = new FormData();
+            payload.append("file", pdf(data.file));
+            return mutate("POST", "pdf/", payload);
+          }, "PDF enviado."),
+        actions(button("Submeter", () => {
+          if (confirm("Submeter esta monografia para avaliação do orientador?")) run(() => mutate("POST", "submit/"), "Monografia submetida.");
+        }, "success"), button("Excluir rascunho", () => {
+          if (confirm("Excluir este rascunho?")) run(() => mutate("DELETE"), "Rascunho excluído.");
+        }, "danger")));
     }
-    // Somente endpoints efetivamente existentes no repositório.
-    let thesis;
-    if(!current){
-      thesis=await app.apiRequest('/theses/',{method:'POST',body:{title,abstract,student_id:studentId,course_id:courseId}});
-      current=app.upsert({...thesis,advisor,keywords:[],file_name:null},'api');
-      history.replaceState(null,'','submissao.html?id='+encodeURIComponent(current.id));
-      app.showNotice(resultBox,`Rascunho criado na API. ID: ${current.id}. Continuando a atualização e o upload, se solicitado...`,'info');
-    }else{
-      thesis=await app.apiRequest(`/theses/${current.id}/`,{method:'PATCH',body:{title,abstract,keywords:keywordList}});
-      current=app.upsert({...current,...thesis,advisor,keywords:keywordList},'api');
+
+    if (profile.role === "coordinator" && draft) {
+      const eligible = claims().assignable_advisor_ids || [];
+      if (eligible.length) summary.append(form([field("Identificador do orientador elegível", "advisor_id", {
+        options: eligible.map(id => [id, id]), value: work.advisor_id && eligible.includes(work.advisor_id) ? work.advisor_id : eligible[0]
+      })], "Associar orientador", data => mutate("PATCH", "", data), "Orientador associado."));
+      else summary.append(el("p", {}, "Nenhum orientador elegível para esta sessão."));
     }
-    // A criação aceita title/abstract/student_id/course_id. Keywords são gravadas via PATCH.
-    if(thesis && current && current.keywords?.length===0 && keywordList.length && !id){
-      thesis=await app.apiRequest(`/theses/${current.id}/`,{method:'PATCH',body:{keywords:keywordList}});
-      current=app.upsert({...current,...thesis,keywords:keywordList},'api');
+
+    if (profile.role === "advisor" && work.status === "submitted") {
+      summary.append(actions(...[["approve", "Aprovar submissão", "success"], ["reject", "Rejeitar submissão", "danger"]]
+        .map(([route, text, style]) => button(text, () => {
+          if (confirm(text + "?")) run(() => mutate("POST", route + "/"), "Decisão registrada.");
+        }, style))));
     }
-    if(file){
-      const body=new FormData();body.append('file',file,file.name);
-      thesis=await app.apiRequest(`/theses/${current.id}/pdf/`,{method:'POST',body});
-      current=app.upsert({...current,...thesis,file_name:file.name},'api');
+
+    if (["coordinator", "advisor"].includes(profile.role) && work.status === "advisor_approved") {
+      summary.append(actions(link("Propor banca", "banca.html" + query({ thesis: work.id }))));
     }
-    let uploadMessage='';
-    if(file){
-      try{
-        const status=await app.apiRequest(`/theses/${current.id}/upload-status/`);
-        uploadMessage=status.upload_status?` Status do upload: ${status.upload_status}.`:'';
-      }catch{uploadMessage=' Não foi possível consultar o status do processamento.';}
+    if (["coordinator", "admin"].includes(profile.role) && work.status !== "draft") {
+      summary.append(actions(link("Preparar publicação", "publicacao.html" + query({ id: work.id }))));
     }
-    app.showNotice(resultBox,`Rascunho salvo na API. ID: ${current.id}.${uploadMessage} O registro permanece em draft porque não existe endpoint de submissão.`, 'success');
-    app.toast('Rascunho salvo na API.');
-    app.el('#file-hint').textContent=file?'PDF enviado: '+file.name:'Rascunho salvo sem novo PDF.';
-    fileInput.value='';
+    detail.replaceChildren(summary);
+    detail.scrollIntoView({ block: "start" });
   }
 
-  async function run(submit=false){
-    if(saveButton.disabled|| (submit&&submitButton.disabled))return;
-    saveButton.disabled=true;submitButton.disabled=true;
-    saveButton.textContent='Salvando...';
-    resultBox.hidden=true;
-    try{await saveDraft(submit)}
-    catch(error){app.showNotice(resultBox,`Não foi possível concluir: ${app.describeError(error)}${current?` O rascunho existente pode ser consultado pelo ID ${current.id}.`:''}`,'error');app.toast(app.describeError(error),true)}
-    finally{
-      saveButton.textContent='Salvar rascunho';
-      if(!submit && (!current||current.status==='draft'))saveButton.disabled=false;
-      if(!real && (!current||current.status==='draft'))submitButton.disabled=false;
-    }
-  }
-  form.addEventListener('submit',event=>{event.preventDefault();run(false)});
-  submitButton.addEventListener('click',()=>run(true));
+  content.replaceChildren(...[create, list, detail].filter(Boolean));
+  await load();
+  const selected = new URLSearchParams(location.search).get("id");
+  if (selected) await open(selected);
 });

@@ -41,6 +41,13 @@ class ThesisSecurityTests(TestCase):
                 self.assertEqual(response.status_code, 401)
                 self.assertEqual(response["WWW-Authenticate"], "Bearer")
 
+    def test_owner_can_read_saved_keywords(self):
+        self.authority.login(self.student, self.course)
+        response = self.client.get(self.detail)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["keywords"], ["security"])
+
     def test_invalid_signed_claims(self):
         for overrides in (
             {"exp": int(time()) - 1},

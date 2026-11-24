@@ -35,6 +35,8 @@ class ThesisResponseSerializer(serializers.Serializer):
 
     abstract = serializers.CharField()
 
+    keywords = serializers.ListField(child=serializers.CharField())
+
     student_id = serializers.UUIDField()
 
     course_id = serializers.UUIDField()

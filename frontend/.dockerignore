@@ -1,0 +1,10 @@
+**
+!*.html
+!nginx.conf
+!css/
+!css/*.css
+!js/
+!js/*.js
+!assets/
+!assets/*.png
+!assets/*.jpg
