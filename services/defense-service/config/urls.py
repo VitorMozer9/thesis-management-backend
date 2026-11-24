@@ -1,9 +1,11 @@
 from django.urls import path
 
 from defense.adapters.inbound import views
+from defense.adapters.inbound.verification import CompletedDefense
 
 
 urlpatterns = [
+    path("internal/completed-defenses/<uuid:defense_id>/", CompletedDefense.as_view()),
     path("api/defenses/", views.Collection.as_view()),
     path("api/defenses/<uuid:defense_id>/", views.Detail.as_view()),
     path("api/defenses/<uuid:defense_id>/members/", views.Members.as_view()),

@@ -1,0 +1,12 @@
+**
+!requirements.txt
+!manage.py
+!config/
+!config/**/*.py
+!repository/
+!repository/**/
+!repository/**/*.py
+**/__pycache__/
+**/.env*
+**/*.pem
+**/*.key

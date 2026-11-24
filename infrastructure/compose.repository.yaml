@@ -1,0 +1,76 @@
+x-repository: &repository
+  image: repository-service:local
+  pull_policy: never
+  init: true
+  restart: "on-failure:3"
+  environment: &repository-env
+    REPOSITORY_SECRET_KEY: ${REPOSITORY_SECRET_KEY:?Configure REPOSITORY_SECRET_KEY}
+    REPOSITORY_DB_PASSWORD: ${REPOSITORY_DB_PASSWORD:?Configure REPOSITORY_DB_PASSWORD}
+    REPOSITORY_DB_HOST: postgres
+    REPOSITORY_DB_PORT: "5432"
+    REPOSITORY_JWT_ISSUER: ${IDENTITY_JWT_ISSUER:?Configure IDENTITY_JWT_ISSUER}
+    REPOSITORY_JWT_AUDIENCE: ${IDENTITY_JWT_AUDIENCE:?Configure IDENTITY_JWT_AUDIENCE}
+    REPOSITORY_JWT_PUBLIC_KEY_FILE: /run/secrets/defense_public_key
+    REPOSITORY_THESIS_API_URL: http://thesis-api:8000
+    REPOSITORY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    REPOSITORY_KAFKA_TOPIC: ${DEFENSE_KAFKA_TOPIC:-defense.events.v1}
+    REPOSITORY_KAFKA_GROUP: ${REPOSITORY_KAFKA_GROUP:-repository-publication-v1}
+    REPOSITORY_REDIS_URL: redis://redis:6379/2
+    REPOSITORY_CACHE_TTL: ${REPOSITORY_CACHE_TTL:-120}
+  secrets: [defense_public_key]
+  volumes: [repository_documents:/app/media]
+
+services:
+  defense-api:
+    environment:
+      REPOSITORY_VERIFICATION_KEY: ${REPOSITORY_VERIFICATION_KEY:?Configure REPOSITORY_VERIFICATION_KEY}
+
+  repository-db-init:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      REPOSITORY_DB_PASSWORD: ${REPOSITORY_DB_PASSWORD:?Configure REPOSITORY_DB_PASSWORD}
+    volumes: [./postgres/repository-db.sql:/repository-db.sql:ro]
+    command: ["sh", "-c", 'psql -v ON_ERROR_STOP=1 -v password="$$REPOSITORY_DB_PASSWORD" -f /repository-db.sql']
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  repository-migrate:
+    <<: *repository
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      repository-db-init: {condition: service_completed_successfully}
+
+  repository-api:
+    <<: *repository
+    build: ../services/repository-service
+    ports: ["127.0.0.1:${REPOSITORY_API_PORT:-8004}:8000"]
+    depends_on:
+      repository-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/repository/', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  repository-worker:
+    <<: *repository
+    volumes: [repository_documents:/app/media:ro]
+    environment:
+      <<: *repository-env
+      REPOSITORY_DEFENSE_API_URL: http://defense-api:8000
+      REPOSITORY_VERIFICATION_KEY: ${REPOSITORY_VERIFICATION_KEY:?Configure REPOSITORY_VERIFICATION_KEY}
+    command: ["python", "manage.py", "run_repository_worker"]
+    depends_on:
+      repository-migrate: {condition: service_completed_successfully}
+      defense-topic: {condition: service_completed_successfully}
+      defense-api: {condition: service_healthy}
+
+volumes:
+  repository_documents:
