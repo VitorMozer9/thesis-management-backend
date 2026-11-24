@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from repository.domain import Conflict, Publication
-from repository.models import Audit, CatalogRevision, Entry, Receipt
+from repository.models import Audit, CatalogRevision, Entry, PublicationOutbox, Receipt
 
 
 class Records:
@@ -30,6 +30,7 @@ class Records:
     def publish(self, entry):
         entry.published_at = timezone.now()
         CatalogRevision.objects.update_or_create(pk=1, defaults={"revision": uuid4()})
+        PublicationOutbox.objects.create(thesis_id=entry.thesis_id)
 
     def save(self, entry):
         changes = {field.name: getattr(entry, field.name) for field in fields(entry) if field.name != "thesis_id"}

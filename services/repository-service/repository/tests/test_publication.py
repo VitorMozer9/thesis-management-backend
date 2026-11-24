@@ -20,7 +20,7 @@ from repository.adapters.defenses import DefenseClient
 from repository.adapters.events import consume, decode
 from repository.adapters.theses import ThesisClient
 from repository.domain import Actor, Conflict, Forbidden
-from repository.models import Audit, CatalogRevision, Entry, InvalidMessage, Receipt
+from repository.models import Audit, CatalogRevision, Entry, InvalidMessage, PublicationOutbox, Receipt
 
 
 class PublicationTests(TestCase):
@@ -83,6 +83,7 @@ class PublicationTests(TestCase):
         self.complete()
         self.complete()
         self.assertEqual(Receipt.objects.count(), 1)
+        self.assertEqual(PublicationOutbox.objects.get().thesis_id, self.thesis)
         self.assertEqual(Audit.objects.filter(action="published").count(), 1)
         self.assertEqual(Audit.objects.get(action="published").event_id.hex, self.envelope["event_id"].replace("-", ""))
         response = self.client.get(f"{self.base}{self.thesis}/pdf/")
@@ -148,6 +149,7 @@ class PublicationTests(TestCase):
             self.complete()
         self.assertFalse(Receipt.objects.exists())
         self.assertFalse(Audit.objects.filter(action="published").exists())
+        self.assertFalse(PublicationOutbox.objects.exists())
 
     def test_jwt_and_scope(self):
         url = self.admin + "metadata/"

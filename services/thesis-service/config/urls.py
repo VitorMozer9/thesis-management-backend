@@ -17,7 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from thesis.adapters.notification_lookup import notification_lookup, publication_recipient
+
+
 urlpatterns = [
+    path("internal/notification-events/<uuid:event_id>/", notification_lookup),
+    path("internal/notification-publications/<uuid:thesis_id>/", publication_recipient),
     #path('admin/', admin.site.urls),
     path(
         "api/",

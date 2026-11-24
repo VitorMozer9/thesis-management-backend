@@ -1,0 +1,139 @@
+x-notification: &notification
+  image: notification-service:local
+  pull_policy: never
+  init: true
+  restart: unless-stopped
+  environment: &notification-env
+    NOTIFICATION_SECRET_KEY: ${NOTIFICATION_SECRET_KEY:?Configure NOTIFICATION_SECRET_KEY}
+    NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?Configure NOTIFICATION_DB_PASSWORD}
+    NOTIFICATION_DB_HOST: postgres
+    NOTIFICATION_DB_PORT: "5432"
+    NOTIFICATION_JWT_ISSUER: ${IDENTITY_JWT_ISSUER}
+    NOTIFICATION_JWT_AUDIENCE: ${IDENTITY_JWT_AUDIENCE}
+    NOTIFICATION_JWT_PUBLIC_KEY_FILE: /run/secrets/defense_public_key
+    NOTIFICATION_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    NOTIFICATION_KAFKA_GROUP: ${NOTIFICATION_KAFKA_GROUP:-notification-delivery-v1}
+    NOTIFICATION_KAFKA_OFFSET_RESET: ${NOTIFICATION_KAFKA_OFFSET_RESET:-latest}
+    KAFKA_THESIS_EVENTS_TOPIC: ${KAFKA_THESIS_EVENTS_TOPIC:-thesis.events.v1}
+    DEFENSE_KAFKA_TOPIC: ${DEFENSE_KAFKA_TOPIC:-defense.events.v1}
+    REPOSITORY_PUBLICATION_TOPIC: ${REPOSITORY_PUBLICATION_TOPIC:-repository.events.v1}
+  secrets: [defense_public_key]
+
+services:
+  thesis-api:
+    environment:
+      NOTIFICATION_LOOKUP_KEY: ${NOTIFICATION_THESIS_KEY:?Configure NOTIFICATION_THESIS_KEY}
+
+  defense-api:
+    environment:
+      NOTIFICATION_LOOKUP_KEY: ${NOTIFICATION_DEFENSE_KEY:?Configure NOTIFICATION_DEFENSE_KEY}
+
+  identity-api:
+    environment:
+      NOTIFICATION_LOOKUP_KEY: ${NOTIFICATION_IDENTITY_KEY:?Configure NOTIFICATION_IDENTITY_KEY}
+
+  repository-api:
+    environment:
+      NOTIFICATION_LOOKUP_KEY: ${NOTIFICATION_REPOSITORY_KEY:?Configure NOTIFICATION_REPOSITORY_KEY}
+
+  repository-publication-topic:
+    image: apache/kafka:4.4.0
+    restart: "on-failure:3"
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command: ["--bootstrap-server", "kafka:19092", "--create", "--if-not-exists", "--topic", "${REPOSITORY_PUBLICATION_TOPIC:-repository.events.v1}", "--partitions", "1", "--replication-factor", "1"]
+    depends_on:
+      kafka: {condition: service_started}
+
+  repository-publication-outbox:
+    image: repository-service:local
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      REPOSITORY_SECRET_KEY: ${REPOSITORY_SECRET_KEY}
+      REPOSITORY_DB_PASSWORD: ${REPOSITORY_DB_PASSWORD}
+      REPOSITORY_DB_HOST: postgres
+      REPOSITORY_DB_PORT: "5432"
+      REPOSITORY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      REPOSITORY_PUBLICATION_TOPIC: ${REPOSITORY_PUBLICATION_TOPIC:-repository.events.v1}
+    command: ["python", "manage.py", "run_publication_outbox"]
+    depends_on:
+      repository-migrate: {condition: service_completed_successfully}
+      repository-publication-topic: {condition: service_completed_successfully}
+
+  notification-db-init:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?Configure NOTIFICATION_DB_PASSWORD}
+    volumes: [./postgres/notification-db.sql:/notification-db.sql:ro]
+    command: ["sh", "-c", 'psql -v ON_ERROR_STOP=1 -v password="$$NOTIFICATION_DB_PASSWORD" -f /notification-db.sql']
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  notification-migrate:
+    <<: *notification
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      notification-db-init: {condition: service_completed_successfully}
+
+  notification-api:
+    <<: *notification
+    build: ../services/notification-service
+    ports: ["127.0.0.1:${NOTIFICATION_API_PORT:-8005}:8000"]
+    depends_on:
+      notification-migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; c=http.client.HTTPConnection('127.0.0.1',8000,timeout=3); c.request('GET','/api/notifications/'); raise SystemExit(c.getresponse().status != 401)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notification-kafka:
+    <<: *notification
+    command: ["python", "manage.py", "run_notification_worker", "kafka"]
+    depends_on:
+      notification-migrate: {condition: service_completed_successfully}
+      thesis-topic: {condition: service_completed_successfully}
+      defense-topic: {condition: service_completed_successfully}
+      repository-publication-topic: {condition: service_completed_successfully}
+
+  notification-delivery:
+    <<: *notification
+    environment:
+      <<: *notification-env
+      NOTIFICATION_THESIS_URL: http://thesis-api:8000
+      NOTIFICATION_THESIS_KEY: ${NOTIFICATION_THESIS_KEY}
+      NOTIFICATION_DEFENSE_URL: http://defense-api:8000
+      NOTIFICATION_DEFENSE_KEY: ${NOTIFICATION_DEFENSE_KEY}
+      NOTIFICATION_IDENTITY_URL: http://identity-api:8000
+      NOTIFICATION_IDENTITY_KEY: ${NOTIFICATION_IDENTITY_KEY}
+      NOTIFICATION_REPOSITORY_URL: http://repository-api:8000
+      NOTIFICATION_REPOSITORY_KEY: ${NOTIFICATION_REPOSITORY_KEY}
+      NOTIFICATION_SMTP_HOST: ${NOTIFICATION_SMTP_HOST:-mailpit}
+      NOTIFICATION_SMTP_PORT: ${NOTIFICATION_SMTP_PORT:-1025}
+      NOTIFICATION_SMTP_USER: ${NOTIFICATION_SMTP_USER:-}
+      NOTIFICATION_SMTP_PASSWORD: ${NOTIFICATION_SMTP_PASSWORD:-}
+      NOTIFICATION_SMTP_TLS: ${NOTIFICATION_SMTP_TLS:-false}
+      NOTIFICATION_SMTP_TIMEOUT: ${NOTIFICATION_SMTP_TIMEOUT:-10}
+      NOTIFICATION_FROM_EMAIL: ${NOTIFICATION_FROM_EMAIL:-notificacoes@example.invalid}
+      NOTIFICATION_MAX_ATTEMPTS: ${NOTIFICATION_MAX_ATTEMPTS:-8}
+    command: ["python", "manage.py", "run_notification_worker", "delivery"]
+    depends_on:
+      notification-migrate: {condition: service_completed_successfully}
+      mailpit: {condition: service_started}
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    ports: ["127.0.0.1:${MAILPIT_PORT:-8025}:8025"]
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+    volumes: [notification_mailpit:/data]
+
+volumes:
+  notification_mailpit:

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models
@@ -62,3 +64,11 @@ class InvalidMessage(models.Model):
 
 class CatalogRevision(models.Model):
     revision = models.UUIDField()
+
+
+class PublicationOutbox(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    thesis_id = models.UUIDField(unique=True)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+    attempts = models.PositiveIntegerField(default=0)
+    published_at = models.DateTimeField(null=True, db_index=True)

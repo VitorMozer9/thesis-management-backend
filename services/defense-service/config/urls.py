@@ -4,7 +4,11 @@ from defense.adapters.inbound import views
 from defense.adapters.inbound.verification import CompletedDefense
 
 
+from defense.adapters.notification_lookup import notification_lookup
+
+
 urlpatterns = [
+    path("internal/notification-events/<uuid:event_id>/", notification_lookup),
     path("internal/completed-defenses/<uuid:defense_id>/", CompletedDefense.as_view()),
     path("api/defenses/", views.Collection.as_view()),
     path("api/defenses/<uuid:defense_id>/", views.Detail.as_view()),
